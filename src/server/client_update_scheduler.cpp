@@ -193,6 +193,19 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
                 serialized_)) {
             continue;
         }
+        // THIS LOOP'S OWN REFERENCE, taken before any path can give one back.
+        //
+        // serialize_entity can hand back a quantized frame that ALREADY EXISTS -- the same-frame
+        // cache, or an identical frame for this slot -- and that frame is then another client's
+        // pending entry or baseline. The paths below that drop a record which does not fit used
+        // to release a reference nobody had taken: a frame retained once by another client went
+        // to zero, was freed while that client still held it, and its index was reused for a
+        // different slot. find_or_create_quantized_frame checks a baseline's archetype and not
+        // its slot, so every component whose dirty generation matched was then copied from the
+        // wrong entity. Measured in ashiato-gd (tests/join_sweep.gd): a joiner arriving beside
+        // seventy moving craft lost its seat on 13 of 48 join timings, and on the machine its
+        // own world believed four craft held it. Every release below now gives back this one.
+        replication_server.retain_server_quantized_frame(serialized_.quantized_frame);
 
         const std::size_t next_packet_bits =
             update_header_bits + records_.bit_size() + 1U + serialized_.payload.bit_size();
@@ -281,8 +294,8 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
             continue;
         }
         entity_state->reference_priority_boost_pending = false;
+        // The reference taken after serialize_entity now belongs to this pending entry.
         entity_state->pending.push_back(ClientEntityState::PendingQuantizedFrame{serialized_.quantized_frame, replication_server.frame()});
-        replication_server.retain_server_quantized_frame(serialized_.quantized_frame);
         while (entity_state->pending.size() > server_detail::max_pending_quantized_frames_per_entity) {
             replication_server.release_server_quantized_frame(entity_state->pending.front().quantized_frame);
             entity_state->pending.erase(entity_state->pending.begin());

@@ -317,11 +317,36 @@ void server_detail::ServerClientReplicator::UpdateScheduler::refresh_priority_if
 
     const ReplicationPriorityDecision decision =
         replication_server.options().prioritizer(replication.id, ReplicationPriorityObject{replication_server.replicated_slot_entity(slot)});
+    // The dirty-queue entry can be rebuilt between sends; the per-client entity
+    // state is the durable record of the mask that produced this baseline.
+    const std::uint64_t previous_mask = replication.entities.try_get(slot) != nullptr
+        ? replication.entities.try_get(slot)->component_mask
+        : entry.component_mask;
     entry.last_priority = decision.priority;
     entry.component_mask = decision.component_mask;
     if (ClientEntityState* entity_state = replication.entities.try_get(slot)) {
         entity_state->last_priority = entry.last_priority;
         entity_state->component_mask = entry.component_mask;
+        // A MASK THAT HAS GAINED A BIT INVALIDATES THE BASELINE.
+        //
+        // Deltas are written against this client's baseline, which is a whole
+        // server-side quantized frame -- including the components the mask withheld from
+        // this client. While a bit is clear those two disagree: the server's baseline says
+        // the component holds V, the client has never seen V.
+        //
+        // That is harmless while the bit stays clear. The moment it is set again the
+        // server would encode a delta against a baseline this client does not have, and
+        // the disagreement is no longer confined to the component that was withheld --
+        // the whole entity is being described relative to a frame the two sides do not
+        // share.
+        //
+        // So re-opening a component forces the next update for this entity to be a FULL
+        // one, which is self-contained and re-establishes a baseline both sides agree on.
+        // Only on GAINING bits: closing one leaves the client with a stale copy of
+        // something it is no longer being told about, which is the entire point.
+        if ((decision.component_mask & ~previous_mask) != 0U) {
+            entity_state->baseline = invalid_quantized_frame_id;
+        }
     }
 }
 

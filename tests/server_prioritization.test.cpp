@@ -240,6 +240,19 @@ TEST_CASE("replication prioritizer component masks apply to delta updates") {
     REQUIRE(fields.delta);
     REQUIRE(fields.x == 30);
     REQUIRE(fields.y == 40);
+
+    // Re-opening a component invalidates this client's whole-frame baseline:
+    // it never received Health=75 while that bit was masked out.
+    REQUIRE(server.acknowledge_entity(1, entity, update.frame));
+    component_mask = std::numeric_limits<std::uint64_t>::max();
+    registry.write<NetworkedPosition>(entity) = NetworkedPosition{7.0f, 8.0f};
+    payloads.clear();
+    server.tick(registry, server.options().fixed_dt_seconds);
+    REQUIRE(payloads.size() == 1);
+    update = read_server_update(payloads.back(), 3U);
+    REQUIRE(update.entities.size() == 1);
+    REQUIRE(update.entities[0].full);
+    REQUIRE(update.entities[0].components.size() == 2);
 }
 
 TEST_CASE("replication prioritizer can emit an entity record with an all-zero component mask") {

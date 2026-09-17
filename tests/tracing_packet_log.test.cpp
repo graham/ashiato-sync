@@ -2,7 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#ifdef ASHIATO_SYNC_ENABLE_TRACING
+// Every test here enables packet logs, which exist only with ASHIATO_SYNC_TRACE_PACKET_LOGS.
+#if defined(ASHIATO_SYNC_ENABLE_TRACING) && defined(ASHIATO_SYNC_TRACE_PACKET_LOGS)
 
 #include <algorithm>
 #include <array>

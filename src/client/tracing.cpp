@@ -497,7 +497,7 @@ void ReplicationClient::trace_incoming_update_packet(
     }
     SyncTraceEvent event = make_client_trace_event(SyncTraceEventType::PacketLog, client_id_, local_frame);
     std::ostringstream out;
-    out << "direction=in,message=server_update,client=" << client_id_
+    out << "direction=in,message=server_update,client=" << static_cast<unsigned>(client_id_)
         << ",sequence=" << packet_id
         << ",server_frame=" << server_frame
         << ",input_ack=" << input_ack_frame

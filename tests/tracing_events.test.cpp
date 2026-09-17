@@ -21,6 +21,13 @@ using namespace ashiato_sync_tests;
 
 namespace {
 
+// Component values appear in trace data only when component data tracing is compiled in.
+#ifdef ASHIATO_SYNC_TRACE_COMPONENT_DATA
+constexpr bool traces_component_data = true;
+#else
+constexpr bool traces_component_data = false;
+#endif
+
 struct AnonymousCueNameProbe {};
 
 }  // namespace
@@ -541,7 +548,9 @@ TEST_CASE("client input tracing records input components every input tick") {
     });
     REQUIRE(input_event != events.end());
     REQUIRE(input_event->component_name == "NetworkedPosition");
+#ifdef ASHIATO_SYNC_TRACE_COMPONENT_DATA
     REQUIRE(input_event->data.find("x=50,y=60") != std::string::npos);
+#endif
 }
 
 #ifdef ASHIATO_SYNC_TRACE_PACKET_LOGS
@@ -662,7 +671,7 @@ TEST_CASE("server input tracing records input components and stale input starvat
             event.component == server_input_component &&
             event.frame == 1 &&
             event.component_name == "NetworkedPosition" &&
-            event.data.find("x=50,y=60") != std::string::npos;
+            (!traces_component_data || event.data.find("x=50,y=60") != std::string::npos);
     }));
     REQUIRE(std::any_of(server_events.begin(), server_events.end(), [&](const ashiato::sync::SyncTraceEvent& event) {
         return event.type == ashiato::sync::SyncTraceEventType::FrameComponent &&
@@ -670,7 +679,7 @@ TEST_CASE("server input tracing records input components and stale input starvat
             event.server_entity == owned &&
             event.component == server_input_component &&
             event.frame == 2 &&
-            event.data.find("x=50,y=60") != std::string::npos;
+            (!traces_component_data || event.data.find("x=50,y=60") != std::string::npos);
     }));
     REQUIRE(std::any_of(server_events.begin(), server_events.end(), [&](const ashiato::sync::SyncTraceEvent& event) {
         return event.type == ashiato::sync::SyncTraceEventType::FrameComponent &&
@@ -812,7 +821,7 @@ TEST_CASE("token client bootstraps input packets that server traces after first 
             event.server_entity == owned &&
             event.component == server_input_component &&
             event.component_name == "NetworkedPosition" &&
-            event.data.find("x=50,y=60") != std::string::npos;
+            (!traces_component_data || event.data.find("x=50,y=60") != std::string::npos);
     }));
 }
 

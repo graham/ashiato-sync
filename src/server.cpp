@@ -815,7 +815,7 @@ void ReplicationServer::trace_outgoing_pong_packet(
     }
     SyncTraceEvent event = make_server_trace_event(SyncTraceEventType::PacketLog, client.id, server_send_frame);
     std::ostringstream out;
-    out << "direction=out,message=server_pong,client=" << client.id
+    out << "direction=out,message=server_pong,client=" << static_cast<unsigned>(client.id)
         << ",peer=" << client.peer
         << ",sequence=" << sequence
         << ",server_receive_frame=" << server_receive_frame
@@ -835,7 +835,7 @@ void ReplicationServer::trace_incoming_input_packet(
     }
     SyncTraceEvent event = make_server_trace_event(SyncTraceEventType::PacketLog, client.id, frame_);
     std::ostringstream out;
-    out << "direction=in,message=client_input,client=" << client.id
+    out << "direction=in,message=client_input,client=" << static_cast<unsigned>(client.id)
         << ",acks=" << packet_ack_list(acks)
         << ",input_frames=";
     if (first_input_frame != 0U && last_input_frame >= first_input_frame) {
@@ -859,7 +859,7 @@ void ReplicationServer::trace_outgoing_update_packet(
     }
     SyncTraceEvent event = make_server_trace_event(SyncTraceEventType::PacketLog, client.id, frame);
     std::ostringstream out;
-    out << "direction=out,message=server_update,client=" << client.id
+    out << "direction=out,message=server_update,client=" << static_cast<unsigned>(client.id)
         << ",sequence=" << packet_id
         << ",server_frame=" << frame
         << ",input_ack=" << input_ack_frame

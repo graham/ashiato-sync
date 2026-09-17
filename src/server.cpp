@@ -2815,6 +2815,15 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
             serialization_events->push_back(serialization_capture.release_event());
         }
     };
+    // Sent events wait with the record's payload event and are traced only when the scheduler
+    // writes this record into a packet; a record the budget refuses discards them with it.
+    auto trace_sent_event = [&](SyncTraceEvent&& event) {
+        if (serialization_events != nullptr) {
+            serialization_events->push_back(std::move(event));
+        } else {
+            replication_server.server_tracer()->trace(event);
+        }
+    };
 #endif
     struct ReferenceContextData {
         ReplicationServer* server = nullptr;
@@ -2857,7 +2866,8 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
         slot,
         network_id,
         quantized_archetype,
-        &settings]
+        &settings,
+        &trace_sent_event]
 #else
     [
         entity_state,
@@ -2911,7 +2921,7 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
                 append_trace_data_field(event, "payload_bytes", static_cast<std::uint64_t>(cue.payload.byte_size()));
                 append_trace_data_field(event, "wire_bits", static_cast<std::uint64_t>(wire_bits));
                 append_trace_data_field(event, "wire_bytes", static_cast<std::uint64_t>(protocol::bytes_for_bits(wire_bits)));
-                replication_server.server_tracer()->trace(event);
+                trace_sent_event(std::move(event));
             }
 #endif
         }
@@ -3004,7 +3014,7 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
                     event.archetype = quantized_archetype;
                     event.tag = archetype.tags[tag_index].tag;
                     event.remove = ((*quantized_data).tag_mask & (std::uint64_t{1} << tag_index)) == 0U;
-                    replication_server.server_tracer()->trace(event);
+                    trace_sent_event(std::move(event));
                 }
             }
 #endif
@@ -3056,7 +3066,7 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
                 append_trace_data_field(event, "payload_kind", "component");
                 append_trace_data_field(event, "wire_bits", static_cast<std::uint64_t>(wire_bits));
                 append_trace_data_field(event, "wire_bytes", static_cast<std::uint64_t>(protocol::bytes_for_bits(wire_bits)));
-                replication_server.server_tracer()->trace(event);
+                trace_sent_event(std::move(event));
             }
 #endif
         }
@@ -3125,7 +3135,7 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
                 event.archetype = quantized_archetype;
                 event.tag = archetype.tags[tag_index].tag;
                 event.remove = ((*quantized_data).tag_mask & (std::uint64_t{1} << tag_index)) == 0U;
-                replication_server.server_tracer()->trace(event);
+                trace_sent_event(std::move(event));
             }
         }
 #endif
@@ -3185,7 +3195,7 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
             append_trace_data_field(event, "payload_kind", "component");
             append_trace_data_field(event, "wire_bits", static_cast<std::uint64_t>(wire_bits));
             append_trace_data_field(event, "wire_bytes", static_cast<std::uint64_t>(protocol::bytes_for_bits(wire_bits)));
-            replication_server.server_tracer()->trace(event);
+            trace_sent_event(std::move(event));
         }
 #endif
     }

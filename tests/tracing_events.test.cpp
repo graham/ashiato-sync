@@ -77,6 +77,68 @@ TEST_CASE("sync tracing records server send client receive and apply events") {
     REQUIRE_FALSE(has_event(client_events, ashiato::sync::SyncTraceEventType::ComponentApplied));
 }
 
+TEST_CASE("sync tracing reports component sends only for records written to a packet") {
+    ashiato::Registry server_registry;
+    const ashiato::sync::SyncArchetypeId server_archetype = define_networked_archetype(server_registry);
+    std::vector<ashiato::Entity> server_entities;
+    for (int index = 0; index < 4; ++index) {
+        const ashiato::Entity entity = server_registry.create();
+        REQUIRE(server_registry.add<ashiato_sync_tests::NetworkedPosition>(
+            entity,
+            ashiato_sync_tests::NetworkedPosition{static_cast<float>(index), 0.0f}) != nullptr);
+        REQUIRE(start_sync(server_registry, entity, server_archetype));
+        server_entities.push_back(entity);
+    }
+
+    std::vector<ashiato::BitBuffer> packets;
+    ashiato::sync::ReplicationServerOptions server_options;
+    // Room for one entity record per tick, so every tick the budget refuses the rest.
+    server_options.bandwidth_limit_bytes_per_tick = 21;
+    server_options.mtu_bytes = 21;
+    server_options.transport = [&](ashiato::sync::ClientId, const ashiato::BitBuffer& packet) {
+        packets.push_back(packet);
+    };
+    ashiato::sync::ReplicationServer server(server_registry, server_options);
+    std::size_t server_component_sent = 0;
+    ashiato::sync::SyncTracer server_tracer;
+    server_tracer.set_callbacks(ashiato::sync::SyncTraceCallbacks{
+        [&](const ashiato::sync::SyncTraceEvent& event) {
+            if (event.type == ashiato::sync::SyncTraceEventType::ComponentSent) {
+                ++server_component_sent;
+            }
+        }});
+    server.set_tracer(&server_tracer);
+    REQUIRE(server.add_client(1));
+
+    ashiato::Registry client_registry;
+    REQUIRE(define_networked_archetype(client_registry) == server_archetype);
+    ashiato_sync_tests::configure_test_client_registry(client_registry, 1);
+    ashiato::sync::ReplicationClient client(client_registry, ashiato_sync_tests::make_test_client_options(client_registry, {}));
+    std::size_t client_component_received = 0;
+    ashiato::sync::SyncTracer client_tracer;
+    client_tracer.set_callbacks(ashiato::sync::SyncTraceCallbacks{
+        [&](const ashiato::sync::SyncTraceEvent& event) {
+            if (event.type == ashiato::sync::SyncTraceEventType::ComponentReceived) {
+                ++client_component_received;
+            }
+        }});
+    client.set_tracer(&client_tracer);
+
+    for (int tick = 0; tick < 5; ++tick) {
+        for (const ashiato::Entity entity : server_entities) {
+            server_registry.write<ashiato_sync_tests::NetworkedPosition>(entity).y = static_cast<float>(tick + 1);
+        }
+        packets.clear();
+        server.tick(server_registry, server.options().fixed_dt_seconds);
+        REQUIRE(packets.size() == 1);
+        REQUIRE(client.receive(client_registry, packets.back()));
+    }
+
+    // Every packet was delivered, so nothing is in flight: a sent component is a received one.
+    REQUIRE(client_component_received == 5U);
+    REQUIRE(server_component_sent == client_component_received);
+}
+
 TEST_CASE("serialization payload tracing is opt-in scoped and client-filtered") {
     std::vector<ashiato::sync::SyncTraceEvent> events;
     ashiato::sync::SyncTracer tracer;

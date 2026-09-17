@@ -844,6 +844,24 @@ struct ReplicationServerOptions {
     double idle_client_timeout_seconds = 0.0;
     std::size_t input_buffer_capacity_frames = 64;
     SyncFrame prioritizer_interval_frames = 4;
+    // How many entity records one client's send loop may serialize and then refuse for
+    // bandwidth in a single tick before it stops considering further candidates. A bound of
+    // 0 and a bound of 1 both stop at the first refusal, because the loop has to serialize a
+    // record to learn that it does not fit.
+    //
+    // The loop serializes a candidate -- quantize, delta-encode against the client's
+    // baseline, retain the quantized frame -- before it can know whether the record fits
+    // the remaining budget, and a record that does not fit is discarded. It keeps going on
+    // purpose, so that a smaller record later in priority order can still fill the packet.
+    // Under a tight budget that means server CPU per tick stays proportional to dirty
+    // entities times clients while the bytes sent are capped, and almost all of that work
+    // is thrown away.
+    //
+    // The default is unbounded, which is exactly the behaviour described above. Lowering it
+    // trades packing for CPU: 0 stops at the first refusal, and a small bound keeps most of
+    // the packing while capping the discarded work. A record refused for exceeding
+    // mtu_bytes is not counted here, because that is a size refusal and not a budget one.
+    std::size_t max_budget_refusals_per_client_tick = std::numeric_limits<std::size_t>::max();
     ReplicationPrioritizerFn prioritizer;
     ConnectHandlerFn connect_handler;
     TransportFn transport;

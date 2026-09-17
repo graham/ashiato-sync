@@ -319,6 +319,40 @@ void BM_ServerTickSerializedBudgetLimited(benchmark::State& state) {
         state.iterations() * static_cast<std::int64_t>(sends_per_client) * static_cast<std::int64_t>(client_count));
 }
 
+// The same starved shape as BM_ServerTickSerializedBudgetLimited, with the send loop bounded
+// so it stops looking for more candidates after a few budget refusals. The gap between the
+// two is the cost of serializing records the budget then discards.
+void BM_ServerTickSerializedBudgetLimitedBounded(benchmark::State& state) {
+    const int entity_count = static_cast<int>(state.range(0));
+    const int client_count = static_cast<int>(state.range(1));
+    const int sends_per_client = static_cast<int>(state.range(2));
+
+    ashiato::Registry registry;
+    const ashiato::sync::SyncArchetypeId archetype = define_archetype(registry);
+    const std::vector<ashiato::Entity> entities = create_position_entities(registry, entity_count);
+
+    std::uint64_t sent = 0;
+    ashiato::sync::ReplicationServerOptions options;
+    options.bandwidth_limit_bytes_per_tick = static_cast<std::size_t>(sends_per_client) * sizeof(Position);
+    options.max_budget_refusals_per_client_tick = 4U;
+    options.transport = [&](ashiato::sync::ClientId client, const ashiato::BitBuffer& payload) {
+        sent += client + payload.byte_size();
+        benchmark::DoNotOptimize(sent);
+    };
+
+    ashiato::sync::ReplicationServer server(registry, options);
+    add_clients(server, client_count);
+    add_replication_configs(registry, entities, archetype);
+    server.rediscover_all_replicated_entities(registry);
+
+    for (auto _ : state) {
+        server.tick(registry, server.options().fixed_dt_seconds);
+    }
+
+    state.SetItemsProcessed(
+        state.iterations() * static_cast<std::int64_t>(sends_per_client) * static_cast<std::int64_t>(client_count));
+}
+
 void BM_ServerTickPackedFullBudget(benchmark::State& state) {
     const int entity_count = static_cast<int>(state.range(0));
     const int client_count = static_cast<int>(state.range(1));
@@ -993,6 +1027,7 @@ BENCHMARK(BM_ServerTickTracingFrameData)->Apply(TickArgs);
 #endif
 BENCHMARK(BM_ServerTickSerializedDelta)->Apply(TickArgs);
 BENCHMARK(BM_ServerTickSerializedBudgetLimited)->Apply(LimitedTickArgs);
+BENCHMARK(BM_ServerTickSerializedBudgetLimitedBounded)->Apply(LimitedTickArgs);
 BENCHMARK(BM_ServerTickPackedFullBudget)->Apply(TickArgs);
 BENCHMARK(BM_ServerTickPackedAckedDeltaShared)->Apply(TickArgs);
 BENCHMARK(BM_ServerTickPackedMtuLimited)->Apply(TickArgs);

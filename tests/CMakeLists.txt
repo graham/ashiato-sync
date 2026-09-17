@@ -27,6 +27,7 @@ add_executable(ashiato_sync_tests
     replay_writer.test.cpp
     server_connection.test.cpp
     server_bandwidth_controller.test.cpp
+    server_budget_serialization.test.cpp
     server_destroy_ack.test.cpp
     server_input_buffer.test.cpp
     server_input.test.cpp

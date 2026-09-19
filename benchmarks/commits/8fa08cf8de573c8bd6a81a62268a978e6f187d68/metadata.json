@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "commit": "8fa08cf8de573c8bd6a81a62268a978e6f187d68",
+  "ref": "main",
+  "repository": "graham/ashiato-sync",
+  "run_id": "35436291511",
+  "run_attempt": "1",
+  "started_at": "2026-09-19T10:03:15.292461+00:00",
+  "finished_at": "2026-09-19T10:03:31.158045+00:00",
+  "subset": "characteristic"
+}

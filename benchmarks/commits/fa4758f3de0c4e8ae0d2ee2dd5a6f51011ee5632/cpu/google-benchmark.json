@@ -1,0 +1,147 @@
+{
+  "context": {
+    "date": "2026-09-20T06:41:14+00:00",
+    "host_name": "runnervmlun5p",
+    "executable": "build-benchmarks/benchmarks/ashiato_sync_benchmark",
+    "num_cpus": 4,
+    "mhz_per_cpu": 4554,
+    "cpu_scaling_enabled": false,
+    "caches": [
+      {
+        "type": "Data",
+        "level": 1,
+        "size": 49152,
+        "num_sharing": 2
+      },
+      {
+        "type": "Instruction",
+        "level": 1,
+        "size": 32768,
+        "num_sharing": 2
+      },
+      {
+        "type": "Unified",
+        "level": 2,
+        "size": 1048576,
+        "num_sharing": 2
+      },
+      {
+        "type": "Unified",
+        "level": 3,
+        "size": 33554432,
+        "num_sharing": 4
+      }
+    ],
+    "load_avg": [8.52344,2.67139,0.930176],
+    "library_version": "v1.9.1",
+    "library_build_type": "release",
+    "json_schema_version": 1
+  },
+  "benchmarks": [
+    {
+      "name": "BM_ClientReceivePredict/4096/16",
+      "family_index": 0,
+      "per_family_instance_index": 0,
+      "run_name": "BM_ClientReceivePredict/4096/16",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 44,
+      "real_time": 1.5948497704547809e+07,
+      "cpu_time": 1.5949531500000006e+07,
+      "time_unit": "ns",
+      "items_per_second": 2.2132311535294932e+04
+    },
+    {
+      "name": "BM_ClientApplyBufferedInterpolation/4096/16",
+      "family_index": 1,
+      "per_family_instance_index": 0,
+      "run_name": "BM_ClientApplyBufferedInterpolation/4096/16",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 125,
+      "real_time": 5.5573642000005068e+06,
+      "cpu_time": 5.5565457119999751e+06,
+      "time_unit": "ns",
+      "items_per_second": 2.8794867943669087e+03
+    },
+    {
+      "name": "BM_ServerTickBudgetLimited/16384/8/64",
+      "family_index": 2,
+      "per_family_instance_index": 0,
+      "run_name": "BM_ServerTickBudgetLimited/16384/8/64",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 91,
+      "real_time": 7.5540878571429476e+06,
+      "cpu_time": 7.5501366813186854e+06,
+      "time_unit": "ns",
+      "items_per_second": 6.7813341878544059e+04
+    },
+    {
+      "name": "BM_ServerTickSerializedDelta/16384/8",
+      "family_index": 3,
+      "per_family_instance_index": 0,
+      "run_name": "BM_ServerTickSerializedDelta/16384/8",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 17,
+      "real_time": 4.1928453647059046e+07,
+      "cpu_time": 4.1924988470588267e+07,
+      "time_unit": "ns",
+      "items_per_second": 3.1263455228366074e+06
+    },
+    {
+      "name": "BM_ServerTickPackedAckedDeltaShared/16384/8",
+      "family_index": 4,
+      "per_family_instance_index": 0,
+      "run_name": "BM_ServerTickPackedAckedDeltaShared/16384/8",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 2821,
+      "real_time": 2.6143867493796538e+05,
+      "cpu_time": 2.6142577100319043e+05,
+      "time_unit": "ns",
+      "items_per_second": 5.0137367673059440e+08
+    },
+    {
+      "name": "BM_ServerTickMutatingAckedDelta/16384/8",
+      "family_index": 5,
+      "per_family_instance_index": 0,
+      "run_name": "BM_ServerTickMutatingAckedDelta/16384/8",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 6,
+      "real_time": 8.8579320333333090e+07,
+      "cpu_time": 8.8567068666666716e+07,
+      "time_unit": "ns",
+      "items_per_second": 1.4799180098565295e+06
+    },
+    {
+      "name": "BM_BitBufferAppendBits/131072",
+      "family_index": 6,
+      "per_family_instance_index": 0,
+      "run_name": "BM_BitBufferAppendBits/131072",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 6244341,
+      "real_time": 1.1138477655208187e+02,
+      "cpu_time": 1.1138052902620134e+02,
+      "time_unit": "ns",
+      "items_per_second": 1.1767945541825034e+12
+    }
+  ]
+}

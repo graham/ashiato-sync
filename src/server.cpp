@@ -355,6 +355,45 @@ std::uint64_t visible_tag_mask(
     return mask;
 }
 
+// Whether a delta record against `baseline` would carry anything: a changed tag mask, or a
+// component in `component_mask` whose quantized bytes differ from the baseline's. The same
+// comparisons write_entity_record makes when it writes the "changed" bits, made before anything
+// is written so a record with none of them can be left out.
+bool delta_record_has_changes(
+    const ReplicationServer& replication_server,
+    const SyncArchetype& archetype,
+    const QuantizedFrameData& quantized_data,
+    std::uint32_t baseline,
+    std::uint64_t component_mask) {
+    const QuantizedFrameData* baseline_data = replication_server.quantized_frame_data(baseline);
+    if (baseline_data == nullptr) {
+        return true;
+    }
+    if (has_tag_slot(archetype)) {
+        const std::uint64_t tag_bit_mask = archetype.tags.size() == 64U
+            ? std::numeric_limits<std::uint64_t>::max()
+            : ((std::uint64_t{1} << archetype.tags.size()) - 1U);
+        if ((quantized_data.tag_mask & tag_bit_mask) != (baseline_data->tag_mask & tag_bit_mask)) {
+            return true;
+        }
+    }
+    for (std::size_t component_index = 0; component_index < archetype.components.size(); ++component_index) {
+        if (!frame_has_component(quantized_data, component_index) ||
+            (component_mask & (std::uint64_t{1} << component_index)) == 0U) {
+            continue;
+        }
+        const std::size_t offset = archetype.component_offsets[component_index];
+        const std::size_t size = archetype.component_ops[component_index].serialization.quantized_size;
+        if (offset + size > quantized_data.bytes.size() || offset + size > baseline_data->bytes.size()) {
+            return true;
+        }
+        if (std::memcmp(quantized_data.bytes.data() + offset, baseline_data->bytes.data() + offset, size) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 ReplicationServer::ReplicationServer(ashiato::Registry& registry, ReplicationServerOptions options)
@@ -2791,6 +2830,21 @@ void server_detail::ServerClientReplicator::UpdateWriter::write_entity_record(
 
     const std::uint32_t network_id = client.network_id_for(replication_server, slot);
     if (network_id == 0U) {
+        return;
+    }
+    // A DELTA THAT WOULD SAY NOTHING IS NOT WRITTEN. An entity is dirty whenever a system took one
+    // of its components by mutable reference, whether or not the value changed. If its quantized
+    // tags and components equal the client's acked baseline and it has no cue to carry, the
+    // record would be the header and a row of false "changed" bits: the client already holds
+    // every value in it. Leave `out` empty, which serialize_entity reports as nothing to send.
+    // The dirty entry stays queued, so a later change is still compared against this baseline.
+    if (delta && entity_state->pending_cues.empty() &&
+        !delta_record_has_changes(
+            replication_server,
+            settings.archetypes[quantized_archetype.value],
+            *quantized_data,
+            entity_state->baseline,
+            component_mask)) {
         return;
     }
 #ifdef ASHIATO_SYNC_ENABLE_TRACING

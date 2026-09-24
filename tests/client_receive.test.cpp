@@ -1541,7 +1541,9 @@ TEST_CASE("replication client keeps receiving an entity through processing and A
                 x += 0.01f;
                 server_registry.write<NetworkedPosition>(server_entity) = NetworkedPosition{x, 2.0f};
                 server.tick(server_registry, server.options().fixed_dt_seconds);
-                if (process_during_stall) {
+                // A tick whose quantized value did not move (0.01 against the codec's 0.1) sends no record,
+                // and so no packet: nothing the client lacks.
+                if (process_during_stall && !packets.empty()) {
                     REQUIRE(packets.size() == 1);
                     REQUIRE(client.receive(client_registry, packets.back()));
                     (void)client.drain_ack_packets();
@@ -1556,10 +1558,11 @@ TEST_CASE("replication client keeps receiving an entity through processing and A
             deliver_acks();
             packets.clear();
 
-            // Normal service again, with no loss at all.
+            // Normal service again, with no loss at all. A whole codec step a tick, so every tick is a real
+            // change and carries a record.
             std::size_t applied = 0;
             for (int tick = 0; tick < 20; ++tick) {
-                x += 0.01f;
+                x += 0.1f;
                 server_registry.write<NetworkedPosition>(server_entity) = NetworkedPosition{x, 2.0f};
                 server.tick(server_registry, server.options().fixed_dt_seconds);
                 if (client.receive(client_registry, packets.back())) {

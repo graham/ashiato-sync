@@ -1,0 +1,65 @@
+[
+  {
+    "name": "BM_ClientReceivePredict/4096/16",
+    "real_time": 26548531.615385573,
+    "cpu_time": 26549115.46153847,
+    "time_unit": "ns",
+    "items_per_second": 13296.111522487023,
+    "bytes_per_second": null,
+    "iterations": 26
+  },
+  {
+    "name": "BM_ClientApplyBufferedInterpolation/4096/16",
+    "real_time": 11429610.311472422,
+    "cpu_time": 11428513.68852455,
+    "time_unit": "ns",
+    "items_per_second": 1400.0070731914784,
+    "bytes_per_second": null,
+    "iterations": 61
+  },
+  {
+    "name": "BM_ServerTickBudgetLimited/16384/8/64",
+    "real_time": 15642876.543478595,
+    "cpu_time": 15641243.978260875,
+    "time_unit": "ns",
+    "items_per_second": 32733.969287328284,
+    "bytes_per_second": null,
+    "iterations": 46
+  },
+  {
+    "name": "BM_ServerTickSerializedDelta/16384/8",
+    "real_time": 73394455.6666649,
+    "cpu_time": 73384188.66666669,
+    "time_unit": "ns",
+    "items_per_second": 1786106.8219391091,
+    "bytes_per_second": null,
+    "iterations": 9
+  },
+  {
+    "name": "BM_ServerTickPackedAckedDeltaShared/16384/8",
+    "real_time": 603483.0800696198,
+    "cpu_time": 603436.4255874677,
+    "time_unit": "ns",
+    "items_per_second": 217209294.04020736,
+    "bytes_per_second": null,
+    "iterations": 1149
+  },
+  {
+    "name": "BM_ServerTickMutatingAckedDelta/16384/8",
+    "real_time": 171605226.66666603,
+    "cpu_time": 171591068.00000027,
+    "time_unit": "ns",
+    "items_per_second": 763862.603850684,
+    "bytes_per_second": null,
+    "iterations": 3
+  },
+  {
+    "name": "BM_BitBufferAppendBits/131072",
+    "real_time": 261.8148178771127,
+    "cpu_time": 261.7760370504918,
+    "time_unit": "ns",
+    "items_per_second": 500702820154.30853,
+    "bytes_per_second": null,
+    "iterations": 2672893
+  }
+]

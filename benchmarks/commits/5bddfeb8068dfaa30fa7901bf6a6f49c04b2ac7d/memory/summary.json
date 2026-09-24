@@ -1,0 +1,42 @@
+[
+  {
+    "name": "BM_MemoryServerSteadyState/16384/8/iterations:1",
+    "allocation_calls": 234178.0,
+    "allocated_bytes": 65868805.0,
+    "peak_live_allocations": 231544.0,
+    "peak_live_bytes": 37722443.0,
+    "retained_allocations": 231542.0,
+    "retained_bytes": 37526303.0,
+    "retained_bytes_per_entity": 2290.4237670898438
+  },
+  {
+    "name": "BM_MemoryClientSnapSteadyState/4096/16/iterations:1",
+    "allocation_calls": 152401.0,
+    "allocated_bytes": 17696413.0,
+    "peak_live_allocations": 86261.0,
+    "peak_live_bytes": 15274525.0,
+    "retained_allocations": 86260.0,
+    "retained_bytes": 15273707.0,
+    "retained_bytes_per_entity": 3728.932373046875
+  },
+  {
+    "name": "BM_MemoryClientBufferedSteadyState/4096/16/iterations:1",
+    "allocation_calls": 213759.0,
+    "allocated_bytes": 40669092.0,
+    "peak_live_allocations": 86252.0,
+    "peak_live_bytes": 37784525.0,
+    "retained_allocations": 86250.0,
+    "retained_bytes": 37783699.0,
+    "retained_bytes_per_entity": 9224.535888671875
+  },
+  {
+    "name": "BM_MemoryClientPredictSteadyState/4096/16/iterations:1",
+    "allocation_calls": 217963.0,
+    "allocated_bytes": 60622381.0,
+    "peak_live_allocations": 90360.0,
+    "peak_live_bytes": 57250341.0,
+    "retained_allocations": 90358.0,
+    "retained_bytes": 57249515.0,
+    "retained_bytes_per_entity": 13976.932373046875
+  }
+]

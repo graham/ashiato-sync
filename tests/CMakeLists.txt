@@ -40,6 +40,7 @@ add_executable(ashiato_sync_tests
     server_packet.test.cpp
     server_prioritization.test.cpp
     server_transport.test.cpp
+    server_unchanged_record.test.cpp
     serialization_context.test.cpp
     stateful_stress.test.cpp
     tracing_component_rows.test.cpp

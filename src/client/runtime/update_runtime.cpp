@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "client/runtime/update_runtime.hpp"
 
 #include "client/runtime/buffered_runtime.hpp"
@@ -993,6 +994,10 @@ bool ClientUpdateRuntime::apply_buffered_destroy(
         return fail_apply("buffered_destroy_fill_frames_failed");
     }
     client.record_authoritative_absent(state, frame);
+    std::fprintf(stderr, "NFD destroy_recorded frame=%u has_applied=%d last_applied=%u now=%d" "
+", (unsigned)frame,
+        (int)client.buffered_runtime_->has_applied_frame(), (unsigned)client.buffered_runtime_->last_applied_frame(),
+        (int)(client.buffered_runtime_->has_applied_frame() && frame <= client.buffered_runtime_->last_applied_frame()));
     if (client.buffered_runtime_->has_applied_frame() && frame <= client.buffered_runtime_->last_applied_frame()) {
         EntityFrameView sample;
         if (!client.buffered_runtime_->frames().view(entity_index, frame, sample) ||

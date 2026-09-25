@@ -90,7 +90,15 @@ bool ClientBufferedRuntime::apply_frame(
             const bool destroyed_past_entity =
                 !state.replication.entity_present &&
                 buffered_frame > state.replication.frame;
-            if (!state.identity.local && (reused_future_entity || destroyed_past_entity)) {
+            // A DESTROYED ENTITY WHOSE ABSENT SAMPLE WAS NEVER VIEWED is erased here, not skipped. After a client stall
+            // the burst and the catch-up carry the buffered frame past the destroy frame without viewing the absent
+            // sample, `view` then fails at every later frame, and skipping left the entity alive on this client for
+            // good while the server had destroyed it (a 120-tick stall with 24 churned: 13 ghosts).
+            if (!state.identity.local && destroyed_past_entity) {
+                applied_destroys.push_back(entity_index);
+                continue;
+            }
+            if (!state.identity.local && reused_future_entity) {
                 continue;
             }
 #ifdef ASHIATO_SYNC_ENABLE_INTERPOLATION_DIAGNOSTICS

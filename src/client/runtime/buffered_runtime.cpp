@@ -31,6 +31,7 @@ bool ClientBufferedRuntime::apply_frames(
     ashiato::Registry& registry,
     const ReplicationClientClock::FrameRange& frames) {
     bool all_valid = true;
+    if (!frames.empty()) { static SyncFrame nfd_last = 0; if (nfd_last != 0 && frames.first > nfd_last + 1) std::fprintf(stderr, "NFD frames_jump from=%u to=%u" "\n", (unsigned)nfd_last, (unsigned)frames.first); nfd_last = frames.last; }
     for (SyncFrame frame = frames.first; !frames.empty() && frame <= frames.last; ++frame) {
         all_valid = apply_frame(client, registry, frame) && all_valid;
         if (frame == frames.last) {
@@ -63,6 +64,15 @@ bool ClientBufferedRuntime::apply_frame(
             continue;
         }
         EntityState& state = client.entity_store_->state_unchecked(entity_index);
+        if (!state.identity.local && !state.replication.entity_present) {
+            static std::uint32_t nfd_seen = 0;
+            if (nfd_seen < 400) { ++nfd_seen;
+                EntityFrameView nfd_sample;
+                const bool nfd_view = !buffered_frames_.empty(entity_index) && buffered_frames_.view(entity_index, buffered_frame, nfd_sample);
+                std::fprintf(stderr, "NFD absent idx=%u at=%u destroy_frame=%u empty=%d view=%d present_in_view=%d" "\n",
+                    entity_index, (unsigned)buffered_frame, (unsigned)state.replication.frame,
+                    (int)buffered_frames_.empty(entity_index), (int)nfd_view, nfd_view ? (int)nfd_sample.entity_present : -1); }
+        }
         if (buffered_frames_.empty(entity_index)) {
             // AN ENTITY THE SERVER DESTROYED, WITH NOTHING LEFT TO SAMPLE: its absent frame was never viewed (after a
             // stall the history it was written into is gone), so it would starve here for good. Take it down.

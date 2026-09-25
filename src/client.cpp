@@ -1575,6 +1575,10 @@ bool ReplicationClient::transition_to_predict(
             if (!prediction_->seed_existing_authoritative_frame(*this, registry, settings, state.replication.frame)) {
                 return false;
             }
+        } else if (state.replication.entity_present && state.replication.frame < prediction_->last_predicted_frame()) {
+            // SETTLE IT FORWARD, as a newly predicted entity is (update_runtime.cpp, apply_predicted_upsert): its
+            // latest authoritative frame is older than the prediction, so replay it from there.
+            prediction_->queue_rollback(*this, state, state.replication.frame);
         }
     }
     finish_immediate_mode_transition(registry, settings, state, previous);

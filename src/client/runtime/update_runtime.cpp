@@ -1050,6 +1050,13 @@ bool ClientUpdateRuntime::apply_predicted_upsert(
         if (!client.apply_frame_data(registry, settings, state, frame, true, authoritative)) {
             return fail_apply("predicted_first_apply_frame_failed");
         }
+        // SETTLE A NEWLY PREDICTED ENTITY FORWARD. The registry now holds it as it was at `frame`, but the client is
+        // already predicting a later frame: without a replay from `frame`, its next step would run the state of
+        // `frame` as though it were the newest predicted frame's, and the first authoritative comparison would roll
+        // it back. Replaying it from `frame` up to the prediction puts it where the other predicted entities are.
+        if (client.prediction_->has_predicted_frame() && frame < client.prediction_->last_predicted_frame()) {
+            client.prediction_->queue_rollback(client, state, frame);
+        }
     }
     if (!client.prediction_->has_predicted_frame()) {
         if (!client.prediction_->seed_first_authoritative_frame(client, registry, settings, frame)) {

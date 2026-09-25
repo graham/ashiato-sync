@@ -53,6 +53,7 @@ bool ClientBufferedRuntime::apply_frame(
     const SyncSettings& settings = registry.get<SyncSettings>();
     bool all_valid = true;
     std::vector<std::uint32_t> applied_destroys;
+    std::vector<std::uint32_t> destroyed_unsampled;
 #ifdef ASHIATO_SYNC_ENABLE_INTERPOLATION_DIAGNOSTICS
     std::uint64_t interpolation_checks = 0;
     std::uint64_t interpolation_starvations = 0;
@@ -102,6 +103,10 @@ bool ClientBufferedRuntime::apply_frame(
                 if (buffered_frames_.view(entity_index, state.replication.frame, absent) && !absent.entity_present
                     && client.apply_buffered_sample(registry, settings, state, absent)) {
                     applied_destroys.push_back(entity_index);
+                } else {
+                    // The absent sample itself is gone from the history too: take the local entity down with its
+                    // state, as a snapped destroy does.
+                    destroyed_unsampled.push_back(entity_index);
                 }
                 continue;
             }
@@ -143,6 +148,10 @@ bool ClientBufferedRuntime::apply_frame(
         client.cue_runtime_->play_buffered_for_frame(client, registry, settings, entity_index, state, buffered_frame);
     }
     if (!applied_destroys.empty()) std::fprintf(stderr, "NFD erased_by_sampler n=%zu at=%u" "\n", applied_destroys.size(), (unsigned)buffered_frame);
+    if (!destroyed_unsampled.empty()) std::fprintf(stderr, "NFD erased_unsampled n=%zu" "\n", destroyed_unsampled.size());
+    for (const std::uint32_t entity_index : destroyed_unsampled) {
+        client.erase_entity_state(registry, entity_index, true);
+    }
     for (const std::uint32_t entity_index : applied_destroys) {
         client.erase_entity_state(registry, entity_index, false);
     }

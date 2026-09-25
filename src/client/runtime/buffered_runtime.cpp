@@ -142,8 +142,7 @@ bool ClientBufferedRuntime::apply_frame(
         }
         client.cue_runtime_->play_buffered_for_frame(client, registry, settings, entity_index, state, buffered_frame);
     }
-    if (!applied_destroys.empty()) std::fprintf(stderr, "NFD erased_by_sampler n=%zu at=%u" "
-", applied_destroys.size(), (unsigned)buffered_frame);
+    if (!applied_destroys.empty()) std::fprintf(stderr, "NFD erased_by_sampler n=%zu at=%u" "\n", applied_destroys.size(), (unsigned)buffered_frame);
     for (const std::uint32_t entity_index : applied_destroys) {
         client.erase_entity_state(registry, entity_index, false);
     }

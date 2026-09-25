@@ -95,7 +95,13 @@ bool ClientBufferedRuntime::apply_frame(
             // sample, `view` then fails at every later frame, and skipping left the entity alive on this client for
             // good while the server had destroyed it (a 120-tick stall with 24 churned: 13 ghosts).
             if (!state.identity.local && destroyed_past_entity) {
-                applied_destroys.push_back(entity_index);
+                // Apply the absent sample at the destroy frame itself -- that is what takes the replicated
+                // components off the local entity -- and then erase, exactly as a viewed destroy is.
+                EntityFrameView absent;
+                if (buffered_frames_.view(entity_index, state.replication.frame, absent) && !absent.entity_present
+                    && client.apply_buffered_sample(registry, settings, state, absent)) {
+                    applied_destroys.push_back(entity_index);
+                }
                 continue;
             }
             if (!state.identity.local && reused_future_entity) {

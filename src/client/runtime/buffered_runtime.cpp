@@ -64,6 +64,12 @@ bool ClientBufferedRuntime::apply_frame(
         }
         EntityState& state = client.entity_store_->state_unchecked(entity_index);
         if (buffered_frames_.empty(entity_index)) {
+            // AN ENTITY THE SERVER DESTROYED, WITH NOTHING LEFT TO SAMPLE: its absent frame was never viewed (after a
+            // stall the history it was written into is gone), so it would starve here for good. Take it down.
+            if (!state.identity.local && !state.replication.entity_present) {
+                destroyed_unsampled.push_back(entity_index);
+                continue;
+            }
 #ifdef ASHIATO_SYNC_ENABLE_INTERPOLATION_DIAGNOSTICS
             ++interpolation_checks;
             ++interpolation_starvations;

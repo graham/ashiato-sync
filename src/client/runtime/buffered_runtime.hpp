@@ -47,7 +47,8 @@ public:
     bool apply_frames(
         ReplicationClient& client,
         ashiato::Registry& registry,
-        const ReplicationClientClock::FrameRange& frames);
+        const ReplicationClientClock::FrameRange& frames);
+    void apply_skipped_destroys(ReplicationClient& client, ashiato::Registry& registry, SyncFrame first, SyncFrame last);
     bool apply_frame(
         ReplicationClient& client,
         ashiato::Registry& registry,

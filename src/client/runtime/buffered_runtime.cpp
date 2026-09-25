@@ -32,6 +32,13 @@ bool ClientBufferedRuntime::apply_frames(
     const ReplicationClientClock::FrameRange& frames) {
     bool all_valid = true;
     if (!frames.empty()) { static SyncFrame nfd_last = 0; if (nfd_last != 0 && frames.first > nfd_last + 1) std::fprintf(stderr, "NFD frames_jump from=%u to=%u" "\n", (unsigned)nfd_last, (unsigned)frames.first); nfd_last = frames.last; }
+    // FRAMES THE CLOCK SKIPPED STILL HOLD DESTROYS. After a client stall the buffered clock resumes past frames it
+    // never applied, and an entity destroyed in that gap has its absent sample there and nothing after it: the
+    // sampler then finds it starved at every later frame and it stays on this client for good (cockpit's
+    // stall_loss: 120 ticks stalled, 24 despawned, 13 left). So the gap is swept once for absent samples.
+    if (!frames.empty() && has_applied_buffered_frame_ && frames.first > last_applied_buffered_frame_ + 1U) {
+        apply_skipped_destroys(client, registry, last_applied_buffered_frame_ + 1U, frames.first - 1U);
+    }
     for (SyncFrame frame = frames.first; !frames.empty() && frame <= frames.last; ++frame) {
         all_valid = apply_frame(client, registry, frame) && all_valid;
         if (frame == frames.last) {
@@ -39,6 +46,42 @@ bool ClientBufferedRuntime::apply_frames(
         }
     }
     return all_valid;
+}
+
+void ClientBufferedRuntime::apply_skipped_destroys(
+    ReplicationClient& client,
+    ashiato::Registry& registry,
+    SyncFrame first,
+    SyncFrame last) {
+    if (!client.has_buffered_entities() || last < first) {
+        return;
+    }
+    const SyncSettings& settings = registry.get<SyncSettings>();
+    std::vector<std::uint32_t> destroyed;
+    for (const std::uint32_t entity_index : client.entity_store_->buffered_entity_indices()) {
+        if (entity_index >= client.entity_store_->entity_count() || buffered_frames_.empty(entity_index)) {
+            continue;
+        }
+        EntityState& state = client.entity_store_->state_unchecked(entity_index);
+        if (state.identity.local) {
+            continue;
+        }
+        for (SyncFrame frame = first; frame <= last; ++frame) {
+            EntityFrameView sample;
+            if (buffered_frames_.view(entity_index, frame, sample) && !sample.entity_present) {
+                if (client.apply_buffered_sample(registry, settings, state, sample)) {
+                    destroyed.push_back(entity_index);
+                }
+                break;
+            }
+            if (frame == last) {
+                break;
+            }
+        }
+    }
+    for (const std::uint32_t entity_index : destroyed) {
+        client.erase_entity_state(registry, entity_index, false);
+    }
 }
 
 bool ClientBufferedRuntime::apply_frame(

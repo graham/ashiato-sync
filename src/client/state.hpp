@@ -68,6 +68,9 @@ struct EntityState {
         SyncFrame referenced_baseline_frame = 0;
         bool has_referenced_baseline = false;
         std::uint64_t applied_present_mask = 0;
+        // The frame of an authoritative destroy this client has recorded but not yet applied, or 0. See
+        // ClientBufferedRuntime::apply_frame: a destroy whose absent sample is never viewed is applied from here.
+        SyncFrame destroy_frame = 0;
     } replication;
 
     struct Mode {

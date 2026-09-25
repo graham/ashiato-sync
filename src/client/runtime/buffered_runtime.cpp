@@ -107,6 +107,13 @@ bool ClientBufferedRuntime::apply_frame(
             continue;
         }
         EntityState& state = client.entity_store_->state_unchecked(entity_index);
+        // A DESTROY THE SAMPLER WENT PAST WITHOUT APPLYING. The absent sample is applied at its own frame; if the
+        // buffered clock is already beyond it -- after a client stall the burst and the catch-up can carry it past, or
+        // the sample is gone -- the entity would starve here for good while the server has destroyed it.
+        if (!state.identity.local && state.replication.destroy_frame != 0 && buffered_frame > state.replication.destroy_frame) {
+            destroyed_unsampled.push_back(entity_index);
+            continue;
+        }
         if (!state.identity.local && !state.replication.entity_present) {
             static std::uint32_t nfd_seen = 0;
             if (nfd_seen < 400) { ++nfd_seen;

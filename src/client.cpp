@@ -1475,6 +1475,7 @@ void ReplicationClient::reset_absent_entity_state(EntityState& state, SyncArchet
     state.replication.referenced_baseline_frame = 0;
     state.replication.has_referenced_baseline = false;
     state.replication.applied_present_mask = 0;
+    state.replication.destroy_frame = 0;
     sync_entity_memberships(state);
 }
 
@@ -1491,6 +1492,9 @@ void ReplicationClient::record_authoritative_present(
     }
     state.replication.frame = frame;
     state.replication.entity_present = true;
+    if (frame > state.replication.destroy_frame) {
+        state.replication.destroy_frame = 0;
+    }
     remember_baseline(state);
     sync_entity_memberships(state);
 }

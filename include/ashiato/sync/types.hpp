@@ -202,9 +202,23 @@ enum class ReplicationClientMode {
     Predict
 };
 
+// Lets a consumer that must also build against an older revision ask for
+// ReplicationRollbackPolicy::PredictedOnly only where it exists.
+#define ASHIATO_SYNC_HAS_PREDICTED_ONLY_ROLLBACK 1
+
 enum class ReplicationRollbackPolicy {
+    // Reset every predicted entity to the rollback frame, re-apply snap and
+    // buffered entities for each replayed frame, and run the whole job graph.
     All,
-    OnlyAffected
+    // Reset and replay only the predicted entities whose own record disagreed.
+    // Entities that read one another (a pilot and the craft it drives) part.
+    OnlyAffected,
+    // Reset every predicted entity to the rollback frame exactly as All does
+    // and replay them together, re-applying snap entities but holding every
+    // buffered (watched) entity where the last tick left it. The job graph
+    // runs over the predicted entities alone. Deterministic: the held poses
+    // depend only on the packets that arrived.
+    PredictedOnly
 };
 
 #ifdef ASHIATO_SYNC_ENABLE_TRACING

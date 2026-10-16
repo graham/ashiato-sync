@@ -268,7 +268,8 @@ void ClientPredictionRuntime::collect_resimulated_entities(
     ReplicationClient& client,
     std::vector<std::uint32_t>& out) const {
     out.clear();
-    const bool all = client.options_.prediction.rollback_policy == ReplicationRollbackPolicy::All;
+    // PredictedOnly resets and replays every predicted entity, exactly as All does.
+    const bool all = client.options_.prediction.rollback_policy != ReplicationRollbackPolicy::OnlyAffected;
     if (!all) {
         out.reserve(client.entity_store_->prediction_rollback_entity_indices().size());
         for (const std::uint32_t entity_index : client.entity_store_->prediction_rollback_entity_indices()) {
@@ -403,9 +404,19 @@ bool ClientPredictionRuntime::apply_pending_rollback(
     }
     client.cue_runtime_->store().begin_resimulation();
 
-    const bool resimmed = client.options_.prediction.rollback_policy == ReplicationRollbackPolicy::OnlyAffected
-        ? resimulate_affected(client, registry, begin_frame, current_frame, options)
-        : resimulate_all(client, registry, begin_frame, current_frame, options);
+    bool resimmed = false;
+    switch (client.options_.prediction.rollback_policy) {
+    case ReplicationRollbackPolicy::OnlyAffected:
+        resimmed = resimulate_affected(client, registry, begin_frame, current_frame, options);
+        break;
+    case ReplicationRollbackPolicy::PredictedOnly:
+        resimmed = resimulate(client, registry, begin_frame, current_frame, options, ResimScope::Predicted);
+        break;
+    case ReplicationRollbackPolicy::All:
+    default:
+        resimmed = resimulate_all(client, registry, begin_frame, current_frame, options);
+        break;
+    }
     if (!resimmed) {
         return false;
     }
@@ -505,6 +516,8 @@ bool ClientPredictionRuntime::prepare_resimulation(
     if (scope == ResimScope::Affected) {
         rollback_affected_entities_scratch_.clear();
         rollback_affected_entities_scratch_.reserve(client.entity_store_->prediction_rollback_entity_indices().size());
+    } else if (scope == ResimScope::Predicted) {
+        rollback_affected_entities_scratch_.clear();
     }
 
     for (std::uint32_t entity_index : client.entity_store_->active_entity_indices()) {
@@ -528,7 +541,7 @@ bool ClientPredictionRuntime::prepare_resimulation(
             if (!client.apply_frame_data(registry, settings, state, reset_frame, true, *baseline)) {
                 return false;
             }
-        } else if (scope == ResimScope::All) {
+        } else if (!affected_scope) {
             EntityFrameView predicted;
             if (predicted_frames_.view(entity_index, reset_frame, predicted) &&
                 !client.apply_buffered_sample(registry, settings, state, predicted)) {
@@ -537,12 +550,12 @@ bool ClientPredictionRuntime::prepare_resimulation(
         }
         if (state.identity.local && registry.alive(state.identity.local)) {
             rollback_event_entities_scratch_.push_back(state.identity.local);
-            if (affected_scope) {
+            if (scope != ResimScope::All) {
                 rollback_affected_entities_scratch_.push_back(state.identity.local);
             }
         }
     }
-    if (scope == ResimScope::Affected && rollback_affected_entities_scratch_.empty()) {
+    if (scope != ResimScope::All && rollback_affected_entities_scratch_.empty()) {
         has_entities_to_resimulate = false;
     }
     return true;
@@ -575,13 +588,14 @@ bool ClientPredictionRuntime::run_resimulation_frame(
     ResimScope scope) {
     ASHIATO_SYNC_PROFILE_SCOPE("AshiatoSync_ClientRunResimulationFrame");
 
-    if (scope == ResimScope::All) {
-        {
-            ASHIATO_SYNC_PROFILE_SCOPE("AshiatoSync_ClientResimApplySnap");
-            if (!apply_snap_resimulation_frame(client, registry, settings, frame)) {
-                return false;
-            }
+    if (scope != ResimScope::Affected) {
+        ASHIATO_SYNC_PROFILE_SCOPE("AshiatoSync_ClientResimApplySnap");
+        if (!apply_snap_resimulation_frame(client, registry, settings, frame)) {
+            return false;
         }
+    }
+    // PredictedOnly holds every buffered entity where the last tick left it.
+    if (scope == ResimScope::All) {
         const SyncFrame buffered_frame = buffered_resimulation_frame(client, frame);
         {
             ASHIATO_SYNC_PROFILE_SCOPE("AshiatoSync_ClientResimApplyBuffered");
@@ -600,7 +614,7 @@ bool ClientPredictionRuntime::run_resimulation_frame(
     registry.write<FrameInfo>().frame = frame;
     {
         ASHIATO_SYNC_PROFILE_SCOPE("AshiatoSync_ClientResimJobGraph");
-        if (scope == ResimScope::Affected) {
+        if (scope != ResimScope::All) {
             client.resim_job_graph(registry).tick_for_entities(registry, rollback_affected_entities_scratch_, options);
         } else {
             client.resim_job_graph(registry).tick(registry, options);

@@ -1139,6 +1139,105 @@ TEST_CASE("predicted client ONLY_AFFECTED resim runs jobs for affected entities"
     REQUIRE(registry.get<PredictedPosition>(client.local_entity(test_client_entity_network_id(1, second_server))).x == 3.0f);
 }
 
+namespace {
+
+struct PilotAndCraft {
+    float pilot = 0.0f;
+    float craft = 0.0f;
+    int replay_visits = 0;
+};
+
+// A pilot and the craft it drives, both predicted. The pilot's lever climbs by
+// one each frame; the craft moves by whatever the pilot's lever reads on the
+// same frame, the way a game's craft reads its pilot's controls. The server
+// then corrects the craft alone: the pilot's record agrees.
+PilotAndCraft fly_pilot_and_craft(ashiato::sync::ReplicationRollbackPolicy policy) {
+    ashiato::Registry registry;
+    const ashiato::Entity position_component =
+        ashiato::sync::register_sync_component<PredictedPosition>(registry, "PredictedPosition");
+    const ashiato::sync::SyncArchetypeId archetype = ashiato::sync::define_archetype(
+        registry,
+        "PredictedActor",
+        {{position_component, ashiato::sync::ReplicationAudience::All}});
+    REQUIRE(archetype.value == 0);
+    ashiato_sync_tests::configure_test_client_registry(registry, 1);
+
+    ashiato::sync::ReplicationClientOptions options;
+    options.entities.default_mode = ashiato::sync::ReplicationClientMode::Predict;
+    options.prediction.rollback_policy = policy;
+    ashiato::sync::ReplicationClient client(registry, ashiato_sync_tests::make_test_client_options(registry, options));
+
+    ashiato::Entity pilot;
+    ashiato::Entity craft;
+    float lever = 0.0f;
+    bool replaying = false;
+    PilotAndCraft result;
+    // Two jobs in order, so the craft reads the lever its pilot set this frame.
+    client.simulation_job<PredictedPosition>(registry, 0).each([&](ashiato::Entity entity, PredictedPosition& position) {
+        if (replaying) {
+            ++result.replay_visits;
+        }
+        if (entity == pilot) {
+            position.x += 1.0f;
+            lever = position.x;
+        }
+    });
+    client.simulation_job<PredictedPosition>(registry, 1).each([&](ashiato::Entity entity, PredictedPosition& position) {
+        if (entity == craft) {
+            position.x += lever;
+        }
+    });
+
+    const ashiato::Entity pilot_server = registry.create();
+    const ashiato::Entity craft_server = registry.create();
+    REQUIRE(client.receive(registry, make_predicted_position_packet(1, pilot_server, PredictedPosition{0.0f, 0.0f}, 1)));
+    REQUIRE(client.receive(registry, make_predicted_position_packet(1, craft_server, PredictedPosition{0.0f, 0.0f}, 2)));
+    pilot = client.local_entity(test_client_entity_network_id(1, pilot_server));
+    craft = client.local_entity(test_client_entity_network_id(1, craft_server));
+    REQUIRE(pilot);
+    REQUIRE(craft);
+
+    // Frames 2, 3 and 4: pilot 1, 2, 3; craft 1, 3, 6.
+    for (int tick = 0; tick < 3; ++tick) {
+        REQUIRE(client.tick(registry, client.fixed_dt_seconds()));
+    }
+    REQUIRE(registry.get<PredictedPosition>(pilot).x == 3.0f);
+    REQUIRE(registry.get<PredictedPosition>(craft).x == 6.0f);
+
+    // The server agrees with the pilot at frame 2 and moves the craft to 5.
+    REQUIRE(client.receive(registry, make_predicted_position_packet(2, pilot_server, PredictedPosition{1.0f, 0.0f}, 3)));
+    REQUIRE(client.receive(registry, make_predicted_position_packet(2, craft_server, PredictedPosition{5.0f, 0.0f}, 4)));
+    replaying = true;
+    REQUIRE(client.tick(registry, client.fixed_dt_seconds()));
+    replaying = false;
+
+    result.pilot = registry.get<PredictedPosition>(pilot).x;
+    result.craft = registry.get<PredictedPosition>(craft).x;
+    return result;
+}
+
+}  // namespace
+
+TEST_CASE("predicted client PREDICTED_ONLY replays a pilot and its craft together") {
+    // All replays frames 3 and 4 for both, then predicts frame 5: pilot 2, 3,
+    // 4; craft 5 + 2 + 3 + 4 = 14.
+    const PilotAndCraft all = fly_pilot_and_craft(ashiato::sync::ReplicationRollbackPolicy::All);
+    REQUIRE(all.pilot == 4.0f);
+    REQUIRE(all.craft == 14.0f);
+
+    const PilotAndCraft predicted = fly_pilot_and_craft(ashiato::sync::ReplicationRollbackPolicy::PredictedOnly);
+    REQUIRE(predicted.pilot == all.pilot);
+    REQUIRE(predicted.craft == all.craft);
+    REQUIRE(predicted.replay_visits == all.replay_visits);
+
+    // OnlyAffected resets and replays the craft alone, so the craft reads the
+    // pilot's lever as the present frame left it on every replayed frame: the
+    // pilot and its craft part. This pins that defect; if it ever passes as
+    // All does, OnlyAffected has been fixed and this check should flip.
+    const PilotAndCraft affected = fly_pilot_and_craft(ashiato::sync::ReplicationRollbackPolicy::OnlyAffected);
+    REQUIRE(affected.craft != all.craft);
+}
+
 TEST_CASE("predicted client cosmetic jobs do not run during resimulation") {
     ashiato::Registry registry;
     const ashiato::Entity position_component =

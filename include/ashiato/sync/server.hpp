@@ -123,6 +123,9 @@ public:
     ClientInputStats input_stats(ClientId client) const noexcept;
     ClientBandwidthStats bandwidth_stats(ClientId client) const noexcept;
     std::shared_ptr<ReplicationBandwidthBudget> client_bandwidth_budget(ClientId client) const noexcept;
+    /// Gives one client its own fixed per-tick byte limit in place of `ReplicationServerOptions::bandwidth_limit_bytes_per_tick`
+    /// (0 clears it). Only meaningful with `options.bandwidth.enabled == false`. False for an unknown client.
+    bool set_client_bandwidth_limit(ClientId client, std::size_t bytes_per_tick);
     bool set_client_bandwidth_budget(ClientId client, std::shared_ptr<ReplicationBandwidthBudget> budget);
     bool set_client_bandwidth_budget(
         ClientId client,

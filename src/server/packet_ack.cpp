@@ -144,7 +144,9 @@ std::size_t ReplicationServer::begin_client_bandwidth_tick(ServerClientReplicato
         client.bandwidth = std::make_shared<ReplicationBandwidthBudget>(options_.bandwidth);
     }
     if (!options_.bandwidth.enabled) {
-        return client.bandwidth->begin_fixed_tick_once(options_.bandwidth_limit_bytes_per_tick);
+        return client.bandwidth->begin_fixed_tick_once(
+            client.bandwidth_limit_bytes_per_tick != 0 ? client.bandwidth_limit_bytes_per_tick
+                                                       : options_.bandwidth_limit_bytes_per_tick);
     }
     return client.bandwidth->begin_tick_once(options_.bandwidth, options_.fixed_dt_seconds);
 }

@@ -68,7 +68,8 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
 
     const ReplicationServerOptions& options = replication_server.options();
     std::size_t remaining = replication.bandwidth == nullptr
-        ? options.bandwidth_limit_bytes_per_tick
+        ? (replication.bandwidth_limit_bytes_per_tick != 0 ? replication.bandwidth_limit_bytes_per_tick
+                                                           : options.bandwidth_limit_bytes_per_tick)
         : replication.bandwidth->send_available_bytes();
     std::uint16_t packet_entities = 0;
     // Number of records this client serialized but could not fit in its remaining bandwidth.

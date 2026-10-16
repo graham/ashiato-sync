@@ -204,6 +204,8 @@ struct ServerClientReplicator final : ServerRegistryDirtyFrameListener, ServerFr
     DestroyQueue destroys;
     NetworkIds network_ids;
     std::shared_ptr<ReplicationBandwidthBudget> bandwidth;
+    /// This client's own fixed per-tick byte limit; 0 means the server's `bandwidth_limit_bytes_per_tick`.
+    std::size_t bandwidth_limit_bytes_per_tick = 0;
     ReplicationBandwidthParticipantId bandwidth_participant = invalid_bandwidth_participant_id;
     AckTracker ack_tracker;
     std::unique_ptr<UpdateScheduler> update_scheduler;

@@ -262,6 +262,11 @@ private:
     void remove_unsubscribed_frame_batch_listeners();
     void rediscover_replicated_entities(ashiato::Registry& registry, ashiato::Registry::DirtyView dirty);
     void capture_dirty_generations(ashiato::Registry::DirtyView dirty, const SyncSettings& settings);
+    // True while some client has a replicator, the only reader of component_dirty_generations
+    // (through a baseline it acknowledged). With none, capture_dirty_generations is skipped and
+    // every active slot's generations are bumped once when the next replicator is created.
+    bool any_client_replicator() const noexcept;
+    void bump_all_dirty_generations();
     void capture_queued_cues(
         ashiato::Registry& registry,
         const SyncSettings& settings,
@@ -408,6 +413,7 @@ private:
     SyncFrame frame_ = 0;
     double tick_accumulator_seconds_ = 0.0;
     bool replicated_initialized_ = false;
+    bool dirty_generations_skipped_ = false;
 #ifdef ASHIATO_SYNC_ENABLE_TRACING
     SyncTracer* tracer_ = nullptr;
     std::unique_ptr<KTraceDirectoryWriter> trace_writer_;

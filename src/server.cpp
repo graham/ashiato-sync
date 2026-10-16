@@ -626,6 +626,13 @@ void ReplicationServer::create_client_replicator(ClientState& client) {
     if (client.local || client.replication != nullptr) {
         return;
     }
+    if (dirty_generations_skipped_) {
+        // Generations stood still while no replicator read them. No baseline survives that
+        // gap (baselines belong to a replicator), but bump once so the invariant "a generation
+        // moves whenever its value may have moved" holds for every retained quantized frame.
+        bump_all_dirty_generations();
+        dirty_generations_skipped_ = false;
+    }
     client.replication = std::make_unique<ServerClientReplicator>();
     client.replication->id = client.id;
     client.replication->peer = client.peer;
@@ -1895,6 +1902,11 @@ std::size_t ReplicationServer::retained_quantized_frame_bytes() const noexcept {
 }
 
 void ReplicationServer::push_client_inputs_to_ashiato(ashiato::Registry& registry) {
+    // No client, local or remote, means no input to push: every entity below would miss
+    // client_to_index_ and return, after a hash lookup each.
+    if (clients_.empty()) {
+        return;
+    }
     const SyncSettings& settings = registry.get<SyncSettings>();
     if (!settings.input_component) {
         return;
@@ -2070,7 +2082,11 @@ void ReplicationServer::push_dirty_info_to_listeners(ashiato::Registry& registry
 void ReplicationServer::on_registry_dirty_frame(const ashiato::RegistryDirtyFrame& frame) {
     rediscover_replicated_entities(frame.registry, frame.dirty);
     const SyncSettings& settings = frame.registry.get<SyncSettings>();
-    capture_dirty_generations(frame.dirty, settings);
+    if (any_client_replicator()) {
+        capture_dirty_generations(frame.dirty, settings);
+    } else {
+        dirty_generations_skipped_ = true;
+    }
 #ifdef ASHIATO_SYNC_ENABLE_TRACING
     trace_frame_components(frame.registry, settings);
 #endif
@@ -2146,6 +2162,29 @@ void ReplicationServer::remove_unsubscribed_frame_batch_listeners() {
                 return entry.listener == nullptr;
             }),
         frame_batch_listeners_->listeners.end());
+}
+
+bool ReplicationServer::any_client_replicator() const noexcept {
+    for (const ClientState& client : clients_) {
+        if (client.replication != nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ReplicationServer::bump_all_dirty_generations() {
+    for (ReplicatedSlot& replicated : replicated_) {
+        if (!replicated.active) {
+            continue;
+        }
+        for (std::uint64_t& generation : replicated.component_dirty_generations) {
+            ++generation;
+            if (generation == 0) {
+                generation = 1;
+            }
+        }
+    }
 }
 
 void ReplicationServer::capture_dirty_generations(ashiato::Registry::DirtyView dirty, const SyncSettings& settings) {

@@ -312,9 +312,11 @@ void server_detail::ServerClientReplicator::mark_dirty(
         entry.priority_accumulator = 0.0f;
         entry.component_mask = std::numeric_limits<std::uint64_t>::max();
         entry.last_priority = std::numeric_limits<float>::quiet_NaN();
+        entry.reserved = false;
         if (const ClientEntityState* state = entities.try_get(replicated_index)) {
             entry.last_priority = state->last_priority;
             entry.component_mask = state->component_mask;
+            entry.reserved = state->last_reserved;
             if (state->baseline != server_detail::invalid_quantized_frame_id &&
                 replication_server.quantized_frame_active(state->baseline)) {
                 entry.baseline_frame = replication_server.quantized_frame_frame(state->baseline);

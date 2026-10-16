@@ -24,6 +24,10 @@ bool is_filtered_priority(float priority) noexcept {
     return !(priority > 0.0f);
 }
 
+std::size_t saturating_add(std::size_t lhs, std::size_t rhs) noexcept {
+    return std::numeric_limits<std::size_t>::max() - lhs < rhs ? std::numeric_limits<std::size_t>::max() : lhs + rhs;
+}
+
 class QuantizedFrameReferenceGuard {
 public:
     QuantizedFrameReferenceGuard(ReplicationServer& server, std::uint32_t frame)
@@ -67,10 +71,21 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
     replication.expire_pending_cues(replication_server.frame());
 
     const ReplicationServerOptions& options = replication_server.options();
-    std::size_t remaining = replication.bandwidth == nullptr
+    // The shared budget: this client's own limit when it has one (set_client_bandwidth_limit),
+    // the server's otherwise. The reserve below is on top of whichever applies.
+    const std::size_t shared_bytes = replication.bandwidth == nullptr
         ? (replication.bandwidth_limit_bytes_per_tick != 0 ? replication.bandwidth_limit_bytes_per_tick
                                                            : options.bandwidth_limit_bytes_per_tick)
         : replication.bandwidth->send_available_bytes();
+    // Reserved updates lead the order. While they are being written the limit is the shared
+    // budget plus the reserve; once the first unreserved candidate is reached, the reserve's
+    // share is fixed at what the reserved records used (at most the reserve), so the rest of
+    // the tick gets the whole shared budget whatever the reserved records cost.
+    const std::size_t reserve_bytes = options.reserved_bandwidth_bytes_per_tick;
+    std::size_t limit = saturating_add(shared_bytes, reserve_bytes);
+    bool reserved_phase = true;
+    // Charged bytes of the packets already sent this tick.
+    std::size_t spent = 0;
     std::uint16_t packet_entities = 0;
     // Number of records this client serialized but could not fit in its remaining bandwidth.
     std::size_t budget_refusals = 0;
@@ -121,13 +136,23 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
                 entry.priority_accumulator,
                 0.0f,
                 entity_state->reference_priority_boost_pending),
-            entry.component_mask});
+            entry.component_mask,
+            entry.reserved});
     }
     std::stable_sort(
         update_candidates_.begin(),
         update_candidates_.end(),
         [](const SerializedCandidate& lhs, const SerializedCandidate& rhs) {
+            if (lhs.reserved != rhs.reserved) {
+                return lhs.reserved;
+            }
             return lhs.priority > rhs.priority;
+        });
+    const auto first_unreserved = std::find_if(
+        update_candidates_.begin(),
+        update_candidates_.end(),
+        [](const SerializedCandidate& candidate) {
+            return !candidate.reserved;
         });
 
     if (replication.destroys.empty()) {
@@ -148,6 +173,7 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
                 return lhs < rhs;
             });
 
+        candidates_.insert(candidates_.end(), update_candidates_.begin(), first_unreserved);
         for (const std::size_t destroy_index : destroy_order_) {
             const ClientDestroyState& destroy = replication.destroys.at(destroy_index);
             candidates_.push_back(SerializedCandidate{
@@ -156,12 +182,22 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
                 destroy_index,
                 static_cast<float>(replication.epoch - destroy.reset_epoch)});
         }
-        candidates_.insert(candidates_.end(), update_candidates_.begin(), update_candidates_.end());
+        candidates_.insert(candidates_.end(), first_unreserved, update_candidates_.end());
     }
     result.had_pending_data = !candidates_.empty();
 
     const std::size_t update_header_bits = server_detail::server_update_header_bits(options);
     for (const SerializedCandidate& candidate : candidates_) {
+        if (reserved_phase && !(candidate.kind == SerializedCandidate::Kind::Update && candidate.reserved)) {
+            // The reserve pays for what the reserved records used, the open packet's header
+            // included, up to its size; everything after them is held to the shared budget.
+            const std::size_t open_bytes = records_.empty()
+                ? 0U
+                : replication_server.charged_packet_bytes(
+                      protocol::bytes_for_bits(update_header_bits + records_.bit_size()));
+            limit = saturating_add(shared_bytes, std::min(reserve_bytes, spent + open_bytes));
+            reserved_phase = false;
+        }
         if (candidate.kind == SerializedCandidate::Kind::Destroy) {
             if (candidate.destroy_index >= replication.destroys.size()) {
                 continue;
@@ -177,9 +213,9 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
                 const std::size_t packet_bytes =
                     protocol::bytes_for_bits(update_header_bits + records_.bit_size());
                 const std::size_t charged_bytes = replication_server.charged_packet_bytes(packet_bytes);
-                ASHIATO_SYNC_ASSERT(charged_bytes <= remaining);
+                ASHIATO_SYNC_ASSERT(spent + charged_bytes <= limit);
                 replication_server.send_server_update_packet(replication, replication_server.frame(), packet_entities, records_, packet_ack_records_);
-                remaining -= charged_bytes;
+                spent += charged_bytes;
                 result.charged_bytes += charged_bytes;
                 records_.clear();
                 packet_ack_records_.clear();
@@ -189,7 +225,7 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
             const std::size_t packet_bytes =
                 protocol::bytes_for_bits(update_header_bits + records_.bit_size() + destroy_bits);
             const std::size_t charged_bytes = replication_server.charged_packet_bytes(packet_bytes);
-            if (packet_bytes > options.mtu_bytes || charged_bytes > remaining) {
+            if (packet_bytes > options.mtu_bytes || spent + charged_bytes > limit) {
                 if (packet_bytes <= options.mtu_bytes) {
                     result.stopped_for_budget = true;
                 }
@@ -243,9 +279,9 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
             const std::size_t packet_bytes =
                 protocol::bytes_for_bits(update_header_bits + records_.bit_size());
             const std::size_t charged_bytes = replication_server.charged_packet_bytes(packet_bytes);
-            ASHIATO_SYNC_ASSERT(charged_bytes <= remaining);
+            ASHIATO_SYNC_ASSERT(spent + charged_bytes <= limit);
             replication_server.send_server_update_packet(replication, replication_server.frame(), packet_entities, records_, packet_ack_records_);
-            remaining -= charged_bytes;
+            spent += charged_bytes;
             result.charged_bytes += charged_bytes;
             records_.clear();
             packet_ack_records_.clear();
@@ -256,7 +292,7 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
             update_header_bits + records_.bit_size() + 1U + serialized_.payload.bit_size();
         const std::size_t packet_bytes = protocol::bytes_for_bits(single_packet_bits);
         const std::size_t charged_bytes = replication_server.charged_packet_bytes(packet_bytes);
-        if (packet_bytes > options.mtu_bytes || charged_bytes > remaining) {
+        if (packet_bytes > options.mtu_bytes || spent + charged_bytes > limit) {
             if (packet_bytes <= options.mtu_bytes) {
                 result.stopped_for_budget = true;
                 ++budget_refusals;
@@ -339,7 +375,7 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
         const std::size_t packet_bytes =
             protocol::bytes_for_bits(update_header_bits + records_.bit_size());
         const std::size_t charged_bytes = replication_server.charged_packet_bytes(packet_bytes);
-        if (charged_bytes <= remaining) {
+        if (spent + charged_bytes <= limit) {
             replication_server.send_server_update_packet(replication, replication_server.frame(), packet_entities, records_, packet_ack_records_);
             result.charged_bytes += charged_bytes;
         } else {
@@ -376,9 +412,11 @@ void server_detail::ServerClientReplicator::UpdateScheduler::refresh_replication
         : entry.component_mask;
     entry.last_priority = decision.priority;
     entry.component_mask = decision.component_mask;
+    entry.reserved = decision.reserved;
     if (entity_state != nullptr) {
         entity_state->last_priority = entry.last_priority;
         entity_state->component_mask = entry.component_mask;
+        entity_state->last_reserved = entry.reserved;
         // Reopened components require a full update to restore a shared baseline.
         if ((decision.component_mask & ~previous_mask) != 0U) {
             replication.invalidate_entity_baseline(replication_server, *entity_state);

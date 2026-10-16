@@ -138,4 +138,33 @@ bool ClientBufferedRuntime::apply_frame(
     return all_valid;
 }
 
+bool ClientBufferedRuntime::apply_frame_for(
+    ReplicationClient& client,
+    ashiato::Registry& registry,
+    SyncFrame buffered_frame,
+    const std::vector<std::uint32_t>& entity_indices) {
+    if (entity_indices.empty()) {
+        return true;
+    }
+    const SyncSettings& settings = registry.get<SyncSettings>();
+    bool all_valid = true;
+    for (const std::uint32_t entity_index : entity_indices) {
+        if (entity_index >= client.entity_store_->entity_count() || buffered_frames_.empty(entity_index)) {
+            continue;
+        }
+        EntityState& state = client.entity_store_->state_unchecked(entity_index);
+        if (state.mode.current != ReplicationClientMode::BufferedInterpolation) {
+            continue;
+        }
+        EntityFrameView sample;
+        if (!buffered_frames_.view(entity_index, buffered_frame, sample) || !sample.entity_present) {
+            continue;
+        }
+        if (!client.apply_buffered_sample(registry, settings, state, sample)) {
+            all_valid = false;
+        }
+    }
+    return all_valid;
+}
+
 }  // namespace ashiato::sync::client_detail

@@ -202,6 +202,9 @@ private:
 
     std::vector<std::uint32_t> rollback_entity_indices_scratch_;
     std::vector<ashiato::Entity> rollback_affected_entities_scratch_;
+    // PredictedOnly: the buffered entities replayed with the predicted ones (predicted_only_companions_handler).
+    std::vector<ashiato::Entity> rollback_companion_entities_scratch_;
+    std::vector<std::uint32_t> rollback_companion_indices_scratch_;
     std::vector<ashiato::Entity> rollback_event_entities_scratch_;
     std::vector<OriginalPredictionCapture> rollback_original_current_scratch_;
     ClientFrameRingStore predicted_frames_;

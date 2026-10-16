@@ -221,6 +221,14 @@ struct ReplicationClientRollbackPreparedEvent {
 using ClientRollbackPreparedFn =
     std::function<void(ashiato::Registry&, const ReplicationClientRollbackPreparedEvent&)>;
 
+// PredictedOnly's coupling rule. Called once per rollback, after every predicted entity is reset and before the first
+// replayed frame, with the predicted local entities. Whatever buffered local entities it appends to `companions` are
+// replayed with them: their buffered frame is re-applied on every replayed frame, as All re-applies every buffered
+// entity, and the job graph runs over them too. A carrier with the predicted craft on its deck is the case it is for.
+// Unset, or appending nothing, holds every buffered entity where the last tick left it.
+using ClientPredictedOnlyCompanionsFn = std::function<void(
+    ashiato::Registry&, const std::vector<ashiato::Entity>& predicted, std::vector<ashiato::Entity>& companions)>;
+
 struct ReplicationClientSessionOptions {
     ClientId local_client = invalid_client_id;
     std::string connect_token;
@@ -249,6 +257,7 @@ struct ReplicationClientOptions {
     ReplicationClientClockOptions clock;
     ClientConnectionEventFn connection_event_handler;
     ClientRollbackPreparedFn rollback_prepared_handler;
+    ClientPredictedOnlyCompanionsFn predicted_only_companions_handler;
     LoggingOptions logging;
 #ifdef ASHIATO_SYNC_ENABLE_TRACING
     TraceOptions trace;

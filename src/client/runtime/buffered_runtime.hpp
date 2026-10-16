@@ -53,6 +53,13 @@ public:
         ashiato::Registry& registry,
         SyncFrame buffered_frame,
         MissingBufferedFramePolicy missing_frame_policy = MissingBufferedFramePolicy::FailApply);
+    // Re-applies one buffered frame to the listed buffered entities alone (PredictedOnly's companions). An entity with
+    // no sample for the frame, or one the sample says is gone, is left as it is: nothing is destroyed and no cue plays.
+    bool apply_frame_for(
+        ReplicationClient& client,
+        ashiato::Registry& registry,
+        SyncFrame buffered_frame,
+        const std::vector<std::uint32_t>& entity_indices);
 
 private:
     ClientFrameRingStore buffered_frames_;

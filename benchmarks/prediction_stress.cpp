@@ -372,6 +372,8 @@ const char* rollback_policy_name(ReplicationRollbackPolicy policy) {
         return "all";
     case ReplicationRollbackPolicy::OnlyAffected:
         return "only-affected";
+    case ReplicationRollbackPolicy::PredictedOnly:
+        return "predicted-only";
     }
     return "all";
 }
@@ -407,8 +409,10 @@ Config parse_args(int argc, char** argv) {
                 config.rollback_policy = ReplicationRollbackPolicy::All;
             } else if (value == "only-affected") {
                 config.rollback_policy = ReplicationRollbackPolicy::OnlyAffected;
+            } else if (value == "predicted-only") {
+                config.rollback_policy = ReplicationRollbackPolicy::PredictedOnly;
             } else {
-                throw std::invalid_argument("--rollback-policy must be all or only-affected");
+                throw std::invalid_argument("--rollback-policy must be all, only-affected or predicted-only");
             }
         } else if (arg == "--report") {
             const std::string value = require_value();

@@ -134,6 +134,7 @@ private:
     enum class ResimScope {
         All,
         Affected,
+        Predicted,
     };
 
     bool resimulate_all(

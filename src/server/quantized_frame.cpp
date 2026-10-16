@@ -54,6 +54,7 @@ void ReplicationServer::clear_client_entity_state(ClientEntityState& state) {
     state.network_version = 0;
     state.last_priority = std::numeric_limits<float>::quiet_NaN();
     state.component_mask = std::numeric_limits<std::uint64_t>::max();
+    state.last_reserved = false;
     state.reference_priority_boost_pending = false;
     state.has_network_id = false;
     state.pending_cues.clear();

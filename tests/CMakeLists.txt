@@ -39,6 +39,7 @@ add_executable(ashiato_sync_tests
     server_packet_ack_tracker.test.cpp
     server_packet.test.cpp
     server_prioritization.test.cpp
+    server_reserved_budget.test.cpp
     server_transport.test.cpp
     serialization_context.test.cpp
     stateful_stress.test.cpp

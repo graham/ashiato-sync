@@ -79,6 +79,13 @@ struct EntityReplicationDecision {
     float priority = 1.0f;
     // Bit i includes component i from the entity's archetype for this client.
     std::uint64_t component_mask = std::numeric_limits<std::uint64_t>::max();
+    // A reserved entity is one this client cannot afford to wait for, such as the entities it
+    // predicts as its own. Its updates are sent ahead of every unreserved record and every
+    // destroy, whatever the priorities, and they are paid for first from
+    // ReplicationServerOptions::reserved_bandwidth_bytes_per_tick rather than from the budget
+    // the other entities share. Keep the set small: a reserved record the reserve cannot pay
+    // for is charged to the shared budget, still ahead of everything else.
+    bool reserved = false;
 };
 
 // Chooses replication priority and components for one client and changed entity.
@@ -855,6 +862,11 @@ struct ReplicationServerOptions {
     // If an update cannot fit in the remaining bandwidth, skip it so a smaller update can
     // still fill the packet. After this many skips, stop and send what fits.
     std::size_t max_budget_refusals_per_client_tick = 2;
+    // Bytes per client tick, on top of the shared budget, that pay for records whose decision
+    // is reserved. Bytes the reserved records do not use are not handed to anything else, so a
+    // client is sent at most bandwidth_limit_bytes_per_tick + reserved_bandwidth_bytes_per_tick
+    // a tick. 0 keeps reserved records first in the order but charges them to the shared budget.
+    std::size_t reserved_bandwidth_bytes_per_tick = 0;
     ConnectHandlerFn connect_handler;
     TransportFn transport;
     ServerConnectionEventFn connection_event_handler;

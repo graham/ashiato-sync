@@ -46,6 +46,7 @@ struct ClientEntityState {
     std::uint32_t network_version = 0;
     float last_priority = std::numeric_limits<float>::quiet_NaN();
     std::uint64_t component_mask = std::numeric_limits<std::uint64_t>::max();
+    bool last_reserved = false;
     bool reference_priority_boost_pending = false;
     bool has_network_id = false;
     std::vector<PendingQuantizedFrame> pending;
@@ -59,6 +60,7 @@ struct ClientDirtyQueue {
         float priority_accumulator = 0.0f;
         float last_priority = std::numeric_limits<float>::quiet_NaN();
         std::uint64_t component_mask = std::numeric_limits<std::uint64_t>::max();
+        bool reserved = false;
         bool queued = false;
         bool listed = false;
     };
@@ -117,6 +119,7 @@ struct SerializedCandidate {
     std::size_t destroy_index = 0;
     float priority = 0.0f;
     std::uint64_t component_mask = std::numeric_limits<std::uint64_t>::max();
+    bool reserved = false;
 };
 
 struct ServerClientReplicator final : ServerRegistryDirtyFrameListener, ServerFrameBatchListener {

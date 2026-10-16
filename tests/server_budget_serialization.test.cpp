@@ -210,6 +210,22 @@ TEST_CASE("records exceeding MTU do not consume the budget refusal bound") {
     REQUIRE(probe_quantize_calls() == bulky_entity_count + 1U);
 }
 
+TEST_CASE("a per-client bandwidth limit replaces the server's for that client alone") {
+    // A generous server whose one client is given the starved budget: it is sent what a starved
+    // server sends, and clearing the override (0) gives it the server's budget back.
+    BudgetSerializationServer server(64U * 1024U, unbounded_refusals);
+    REQUIRE(server.server->set_client_bandwidth_limit(1, starved_budget_bytes));
+    REQUIRE_FALSE(server.server->set_client_bandwidth_limit(2, starved_budget_bytes));
+    server.records = 0;
+    server.tick();
+    REQUIRE(server.records == 2);
+
+    REQUIRE(server.server->set_client_bandwidth_limit(1, 0U));
+    server.records = 0;
+    server.tick();
+    REQUIRE(server.records == bulky_entity_count + 1U);
+}
+
 TEST_CASE("a refusal bound changes nothing for a client whose budget is not starved") {
     // No candidate is ever refused for budget, so the bound is never consulted, even at its
     // strictest setting.

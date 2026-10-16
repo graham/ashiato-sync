@@ -1084,6 +1084,15 @@ std::shared_ptr<ReplicationBandwidthBudget> ReplicationServer::client_bandwidth_
     return state.replication == nullptr ? std::shared_ptr<ReplicationBandwidthBudget>{} : state.replication->bandwidth;
 }
 
+bool ReplicationServer::set_client_bandwidth_limit(ClientId client, std::size_t bytes_per_tick) {
+    const auto found = client_to_index_.find(client);
+    if (found == client_to_index_.end() || found->second >= clients_.size() || clients_[found->second].replication == nullptr) {
+        return false;
+    }
+    clients_[found->second].replication->bandwidth_limit_bytes_per_tick = bytes_per_tick;
+    return true;
+}
+
 bool ReplicationServer::set_client_bandwidth_budget(
     ClientId client,
     std::shared_ptr<ReplicationBandwidthBudget> budget) {

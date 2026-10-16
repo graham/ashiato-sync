@@ -558,6 +558,27 @@ bool ClientPredictionRuntime::prepare_resimulation(
     if (scope != ResimScope::All && rollback_affected_entities_scratch_.empty()) {
         has_entities_to_resimulate = false;
     }
+    rollback_companion_indices_scratch_.clear();
+    if (scope == ResimScope::Predicted && has_entities_to_resimulate &&
+        client.options_.predicted_only_companions_handler) {
+        rollback_companion_entities_scratch_.clear();
+        client.options_.predicted_only_companions_handler(
+            registry, rollback_affected_entities_scratch_, rollback_companion_entities_scratch_);
+        for (const ashiato::Entity companion : rollback_companion_entities_scratch_) {
+            EntityState* state = client.entity_store_->find_by_local_entity(companion);
+            if (state == nullptr || state->mode.current != ReplicationClientMode::BufferedInterpolation ||
+                !registry.alive(companion)) {
+                continue;
+            }
+            const std::uint32_t entity_index = client.entity_store_->index_of(*state);
+            if (std::find(rollback_companion_indices_scratch_.begin(), rollback_companion_indices_scratch_.end(),
+                    entity_index) != rollback_companion_indices_scratch_.end()) {
+                continue;
+            }
+            rollback_companion_indices_scratch_.push_back(entity_index);
+            rollback_affected_entities_scratch_.push_back(companion);
+        }
+    }
     return true;
 }
 
@@ -594,7 +615,17 @@ bool ClientPredictionRuntime::run_resimulation_frame(
             return false;
         }
     }
-    // PredictedOnly holds every buffered entity where the last tick left it.
+    // PredictedOnly holds every buffered entity where the last tick left it, but its companions.
+    if (scope == ResimScope::Predicted && !rollback_companion_indices_scratch_.empty()) {
+        ASHIATO_SYNC_PROFILE_SCOPE("AshiatoSync_ClientResimApplyCompanions");
+        if (!client.buffered_runtime_->apply_frame_for(
+                client,
+                registry,
+                buffered_resimulation_frame(client, frame),
+                rollback_companion_indices_scratch_)) {
+            return false;
+        }
+    }
     if (scope == ResimScope::All) {
         const SyncFrame buffered_frame = buffered_resimulation_frame(client, frame);
         {

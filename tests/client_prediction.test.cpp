@@ -1238,6 +1238,109 @@ TEST_CASE("predicted client PREDICTED_ONLY replays a pilot and its craft togethe
     REQUIRE(affected.craft != all.craft);
 }
 
+namespace {
+
+enum class CarrierReplay { All, PredictedOnlyHeld, PredictedOnlyCompanion };
+
+// A predicted craft riding a buffered carrier: the craft moves by whatever the carrier reads on the same frame, as a
+// helicopter on a moving deck does. The carrier's buffered frames climb by ten a frame; the server then corrects the
+// craft. Answers the craft's position after the rollback.
+float ride_a_carrier(CarrierReplay replay) {
+    ashiato::Registry registry;
+    const ashiato::Entity position_component =
+        ashiato::sync::register_sync_component<PredictedPosition>(registry, "PredictedPosition");
+    const ashiato::sync::SyncArchetypeId archetype = ashiato::sync::define_archetype(
+        registry,
+        "PredictedActor",
+        {{position_component, ashiato::sync::ReplicationAudience::All}});
+    REQUIRE(archetype.value == 0);
+    ashiato_sync_tests::configure_test_client_registry(registry, 1);
+
+    const ashiato::Entity craft_server = registry.create();
+    const ashiato::Entity carrier_server = registry.create();
+    const ashiato::sync::ClientEntityNetworkId craft_id = test_client_entity_network_id(1, craft_server);
+    const ashiato::sync::ClientEntityNetworkId carrier_id = test_client_entity_network_id(1, carrier_server);
+
+    ashiato::sync::ReplicationClientOptions options;
+    options.entities.default_mode = ashiato::sync::ReplicationClientMode::Snap;
+    options.entities.mode_selector = [&](const ashiato::sync::ReplicatedEntityUpdateView& update) {
+        if (update.client_entity_network_id == craft_id) {
+            return ashiato::sync::ReplicationClientMode::Predict;
+        }
+        if (update.client_entity_network_id == carrier_id) {
+            return ashiato::sync::ReplicationClientMode::BufferedInterpolation;
+        }
+        return ashiato::sync::ReplicationClientMode::Snap;
+    };
+    options.prediction.rollback_policy = replay == CarrierReplay::All
+        ? ashiato::sync::ReplicationRollbackPolicy::All
+        : ashiato::sync::ReplicationRollbackPolicy::PredictedOnly;
+    options.buffered.buffered_frame_lag = 1;
+    options.buffered.auto_buffered_frame_lag = false;
+    ashiato::Entity craft;
+    ashiato::Entity carrier;
+    int companions_asked = 0;
+    if (replay == CarrierReplay::PredictedOnlyCompanion) {
+        options.predicted_only_companions_handler = [&](ashiato::Registry&,
+                                                        const std::vector<ashiato::Entity>& predicted,
+                                                        std::vector<ashiato::Entity>& companions) {
+            ++companions_asked;
+            REQUIRE(predicted.size() == 1U);
+            REQUIRE(predicted.front() == craft);
+            companions.push_back(carrier);
+        };
+    }
+    ashiato::sync::ReplicationClient client(registry, ashiato_sync_tests::make_test_client_options(registry, options));
+
+    float deck = 0.0f;
+    client.simulation_job<PredictedPosition>(registry, 0).each([&](ashiato::Entity entity, PredictedPosition& position) {
+        if (entity == carrier) {
+            deck = position.x;
+        }
+    });
+    client.simulation_job<PredictedPosition>(registry, 1).each([&](ashiato::Entity entity, PredictedPosition& position) {
+        if (entity == craft) {
+            position.x += deck;
+        }
+    });
+
+    std::uint32_t packet = 1;
+    REQUIRE(client.receive(registry, make_predicted_position_packet(1, craft_server, PredictedPosition{0.0f, 0.0f}, packet++)));
+    for (ashiato::sync::SyncFrame frame = 1; frame <= 6; ++frame) {
+        REQUIRE(client.receive(registry, make_predicted_position_packet(
+            frame, carrier_server, PredictedPosition{10.0f * static_cast<float>(frame), 0.0f}, packet++)));
+    }
+    craft = client.local_entity(craft_id);
+    REQUIRE(craft);
+    REQUIRE(client.apply_frame(registry, 1));
+    carrier = client.local_entity(carrier_id);
+    REQUIRE(carrier);
+
+    for (int tick = 0; tick < 4; ++tick) {
+        REQUIRE(client.tick(registry, client.fixed_dt_seconds()));
+    }
+    // The server moves the craft at frame 2 to somewhere the client did not predict.
+    REQUIRE(client.receive(registry, make_predicted_position_packet(2, craft_server, PredictedPosition{500.0f, 0.0f}, packet++)));
+    REQUIRE(client.tick(registry, client.fixed_dt_seconds()));
+    if (replay == CarrierReplay::PredictedOnlyCompanion) {
+        REQUIRE(companions_asked == 1);
+    }
+    return registry.get<PredictedPosition>(craft).x;
+}
+
+}  // namespace
+
+TEST_CASE("predicted client PREDICTED_ONLY replays a buffered companion as All does") {
+    const float all = ride_a_carrier(CarrierReplay::All);
+    const float companion = ride_a_carrier(CarrierReplay::PredictedOnlyCompanion);
+    const float held = ride_a_carrier(CarrierReplay::PredictedOnlyHeld);
+    REQUIRE(all > 500.0f);
+    REQUIRE(companion == all);
+    // Held where the last tick left it, the carrier reads the same on every replayed frame: the bounded error the
+    // companion handler exists to remove.
+    REQUIRE(held != all);
+}
+
 TEST_CASE("predicted client cosmetic jobs do not run during resimulation") {
     ashiato::Registry registry;
     const ashiato::Entity position_component =

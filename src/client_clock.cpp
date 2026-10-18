@@ -24,6 +24,20 @@ float dilation_from_error(float error, float gain, float min_dilation, float max
     return std::min(max_dilation, std::max(min_dilation, unclamped));
 }
 
+// A continuous frame within this many frames of a whole number is that whole number. Floating-point noise in the running
+// local time (a sum of 1/60 steps) and in the offset puts a frame estimate that is exactly N on either side of N, so a bare
+// floor holds the buffered frame for one tick and then steps two. The subframe the pong carries is 1/65536 of a frame
+// (1.5e-5), 15 times this tolerance, so a real sub-frame difference still floors normally.
+constexpr double whole_frame_tolerance = 1.0e-6;
+
+SyncFrame floor_frame(double continuous_frame) noexcept {
+    return static_cast<SyncFrame>(std::floor(continuous_frame + whole_frame_tolerance));
+}
+
+double accumulator_seconds_past_frame(double continuous_frame, SyncFrame frame, double fixed_dt_seconds) noexcept {
+    return std::max(0.0, (continuous_frame - static_cast<double>(frame)) * fixed_dt_seconds);
+}
+
 SyncFrame rounded_frame_count(double frames) noexcept {
     if (!std::isfinite(frames) || frames <= 0.0) {
         return 0;
@@ -118,10 +132,10 @@ ReplicationClientClock::AdvanceResult ReplicationClientClock::advance_client_fra
 
     const SyncFrame previous_buffered_frame = buffered_frame_;
     const double continuous_buffered_frame = buffered_frame_for_estimated_server_frame(estimated_server_frame());
-    const auto next_buffered_frame = static_cast<SyncFrame>(std::floor(continuous_buffered_frame));
+    const SyncFrame next_buffered_frame = floor_frame(continuous_buffered_frame);
     buffered_frame_ = next_buffered_frame;
     buffered_accumulator_seconds_ =
-        (continuous_buffered_frame - static_cast<double>(buffered_frame_)) * config_.fixed_dt_seconds;
+        accumulator_seconds_past_frame(continuous_buffered_frame, buffered_frame_, config_.fixed_dt_seconds);
     if (buffered_frame_ > previous_buffered_frame) {
         result.buffered.first = previous_buffered_frame + 1U;
         result.buffered.last = buffered_frame_;
@@ -168,10 +182,10 @@ bool ReplicationClientClock::maybe_bootstrap_from_first_server_update(
             static_cast<double>(server_frame) * config_.fixed_dt_seconds - local_time_seconds_;
     }
     const double continuous_buffered_frame = buffered_frame_for_estimated_server_frame(estimated_server_frame());
-    buffered_frame_ = static_cast<SyncFrame>(std::floor(continuous_buffered_frame));
+    buffered_frame_ = floor_frame(continuous_buffered_frame);
     predicted_frame_ = seed_prediction_lead ? server_frame + config_.prediction_lead_frames : server_frame;
     buffered_accumulator_seconds_ =
-        (continuous_buffered_frame - static_cast<double>(buffered_frame_)) * config_.fixed_dt_seconds;
+        accumulator_seconds_past_frame(continuous_buffered_frame, buffered_frame_, config_.fixed_dt_seconds);
     predicted_accumulator_seconds_ = 0.0;
     display_accumulator_seconds_ = 0.0;
     display_target_frame_ = continuous_buffered_frame;
@@ -405,9 +419,9 @@ void ReplicationClientClock::reconfigure_frames_from_estimated_server_time() noe
         return;
     }
     const double continuous_buffered = buffered_frame_for_estimated_server_frame(estimated_frame);
-    buffered_frame_ = static_cast<SyncFrame>(std::floor(continuous_buffered));
+    buffered_frame_ = floor_frame(continuous_buffered);
     buffered_accumulator_seconds_ =
-        (continuous_buffered - static_cast<double>(buffered_frame_)) * config_.fixed_dt_seconds;
+        accumulator_seconds_past_frame(continuous_buffered, buffered_frame_, config_.fixed_dt_seconds);
 
     const SyncFrame server_frame = rounded_frame_count(std::max(0.0, estimated_frame));
     const SyncFrame prediction_lead = config_.auto_prediction_lead_frames

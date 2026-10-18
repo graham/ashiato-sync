@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <cstdio>
 #include <stdexcept>
 
 namespace {
@@ -520,4 +521,33 @@ TEST_CASE("client clock keeps prediction neutral when auto prediction is disable
 
     REQUIRE(clock.stats().target_prediction_lead_frames == 2);
     REQUIRE(clock.stats().predicted_time_dilation == Catch::Approx(1.0f));
+}
+
+TEST_CASE("client clock buffered frame advances one frame every tick when the estimate lands on a whole frame") {
+    ashiato::sync::ReplicationClientClock clock(test_config());
+    const double dt = clock.config().fixed_dt_seconds;
+
+    // Zero latency: the pong's server time is the client's own time, so the estimated server frame is the client's
+    // local frame and the buffered frame (estimate minus the lag) is a whole number on every tick.
+    clock.record_time_sync_sample(0.0, 0.0, 0.0, 0.0);
+    REQUIRE(clock.maybe_bootstrap_from_first_server_update(0));
+
+    ashiato::sync::SyncFrame previous = clock.buffered_frame();
+    int bad_ticks = 0;
+    for (int tick = 1; tick <= 600; ++tick) {
+        (void)clock.advance(dt);
+        const ashiato::sync::SyncFrame now = clock.buffered_frame();
+        if (tick > 3 && now != previous + 1U) {
+            ++bad_ticks;
+            std::fprintf(stderr, "tick %d buffered %u previous %u continuous %.17g\n", tick, static_cast<unsigned>(now),
+                static_cast<unsigned>(previous), clock.continuous_buffered_frame());
+        }
+        previous = now;
+        // The time-sync pong that arrives every two seconds reports the same zero-latency answer.
+        if (tick % 120 == 0) {
+            const double t = clock.local_time_seconds();
+            clock.record_time_sync_sample(t, t, t, t);
+        }
+    }
+    REQUIRE(bad_ticks == 0);
 }

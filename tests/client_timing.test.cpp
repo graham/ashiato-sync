@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -495,4 +496,86 @@ TEST_CASE("adaptive ping interval can match steady ping cadence") {
     REQUIRE(drain_ping(client, client_registry, 0.0, ping));
     REQUIRE_FALSE(drain_ping(client, client_registry, 0.25, ping));
     REQUIRE(drain_ping(client, client_registry, 2.75, ping));
+}
+
+TEST_CASE("a buffered entity at constant velocity is sampled one step further every tick at zero latency") {
+    constexpr double tick_dt = 1.0 / 60.0;
+    constexpr int total_ticks = 600;
+    constexpr int warmup_ticks = 30;
+    constexpr float step = 1.0f;
+
+    ashiato::Registry server_registry;
+    const ashiato::sync::SyncArchetypeId server_archetype = define_predicted_archetype(server_registry);
+    ashiato_sync_tests::configure_test_server_registry(server_registry);
+    const ashiato::Entity server_entity = server_registry.create();
+    REQUIRE(server_registry.add<PredictedPosition>(server_entity, PredictedPosition{0.0f, 0.0f}) != nullptr);
+    REQUIRE(start_sync(server_registry, server_entity, server_archetype));
+
+    std::vector<ashiato::BitBuffer> to_client;
+    ashiato::sync::ReplicationServerOptions server_options;
+    server_options.fixed_dt_seconds = tick_dt;
+    server_options.entity_replication_decision_interval_frames = 0;
+    server_options.transport = [&](ashiato::sync::ClientId, const ashiato::BitBuffer& packet) {
+        to_client.push_back(packet);
+    };
+    ashiato::sync::ReplicationServer server(server_registry, server_options);
+    REQUIRE(server.add_client(1));
+
+    ashiato::Registry client_registry;
+    ashiato_sync_tests::configure_test_client_registry(client_registry, 1);
+    {
+        const ashiato::Entity position =
+            ashiato::sync::register_sync_component<PredictedPosition>(client_registry, "PredictedPosition");
+        ashiato::sync::set_fractional_tick_sampled(client_registry, position);
+        REQUIRE(
+            ashiato::sync::define_archetype(
+                client_registry, "PredictedActor", {{position, ashiato::sync::ReplicationAudience::All}})
+            == server_archetype);
+    }
+    ashiato::sync::ReplicationClientOptions client_options;
+    client_options.clock.fixed_dt_seconds = tick_dt;
+    client_options.entities.default_mode = ashiato::sync::ReplicationClientMode::BufferedInterpolation;
+    ashiato::sync::ReplicationClient client(
+        client_registry, ashiato_sync_tests::make_test_client_options(client_registry, client_options));
+    std::vector<ashiato::BitBuffer> to_server;
+    client.set_packet_sender([&](const ashiato::BitBuffer& packet) { to_server.push_back(packet); });
+
+    // One process, no link: packets cross in the tick they are sent, as a solo game hands them across.
+    float previous_x = 0.0f;
+    bool have_previous = false;
+    int bad_ticks = 0;
+    for (int tick = 0; tick < total_ticks; ++tick) {
+        REQUIRE(client.tick(client_registry, tick_dt));
+        for (const ashiato::BitBuffer& packet : to_server) {
+            server.receive_packet(1, packet);
+        }
+        to_server.clear();
+        server_registry.write<PredictedPosition>(server_entity).x += step;
+        REQUIRE(server.tick(server_registry, tick_dt));
+        for (const ashiato::BitBuffer& packet : to_client) {
+            client.receive_packet(packet);
+        }
+        to_client.clear();
+
+        float x = 0.0f;
+        bool present = false;
+        for (const ashiato::sync::FractionalTickSample& sample : client.fractional_tick_frame(client_registry).entities) {
+            PredictedPosition position;
+            if (sample.try_get_sampled_value(client_registry, position)) {
+                x = position.x;
+                present = true;
+            }
+        }
+        if (!present) {
+            continue;
+        }
+        if (have_previous && tick >= warmup_ticks && std::fabs((x - previous_x) - step) > step * 0.01f) {
+            ++bad_ticks;
+            INFO("tick " << tick << " moved " << (x - previous_x) << " buffered frame " << client.buffered_frame());
+        }
+        previous_x = x;
+        have_previous = true;
+    }
+    CAPTURE(bad_ticks);
+    REQUIRE(bad_ticks == 0);
 }

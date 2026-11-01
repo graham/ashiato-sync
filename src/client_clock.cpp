@@ -392,6 +392,17 @@ void ReplicationClientClock::compute_auto_targets() noexcept {
     stats_.target_prediction_lead_frames = prediction_target;
 }
 
+void ReplicationClientClock::set_auto_prediction_safety_frames(SyncFrame frames) noexcept {
+    const auto delta = static_cast<std::int64_t>(frames) - static_cast<std::int64_t>(config_.auto_prediction_safety_frames);
+    config_.auto_prediction_safety_frames = frames;
+    const auto shifted = [&](SyncFrame target) {
+        const std::int64_t moved = std::max<std::int64_t>(0, static_cast<std::int64_t>(target) + delta);
+        return clamp_prediction_target(static_cast<SyncFrame>(moved));
+    };
+    stats_.desired_prediction_lead_frames = shifted(stats_.desired_prediction_lead_frames);
+    stats_.target_prediction_lead_frames = shifted(stats_.target_prediction_lead_frames);
+}
+
 double ReplicationClientClock::time_sync_reconfigure_threshold_frames() const noexcept {
     return static_cast<double>(
         stats_.latency_frames +

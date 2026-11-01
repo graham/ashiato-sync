@@ -551,6 +551,10 @@ public:
     const ReplicationClientTimingStats& timing_stats() const noexcept {
         return clock_.stats();
     }
+    /// Lets a game raise or lower the prediction safety margin after the client is built (a lead that follows the link's measured slack).
+    void set_auto_prediction_safety_frames(SyncFrame frames) noexcept {
+        clock_.set_auto_prediction_safety_frames(frames);
+    }
     ObservabilityStats observability_stats() const noexcept {
         return observability_stats_;
     }

@@ -521,3 +521,25 @@ TEST_CASE("client clock keeps prediction neutral when auto prediction is disable
     REQUIRE(clock.stats().target_prediction_lead_frames == 2);
     REQUIRE(clock.stats().predicted_time_dilation == Catch::Approx(1.0f));
 }
+
+TEST_CASE("client clock moves the prediction targets with a new safety margin") {
+    ashiato::sync::ReplicationClientClockConfig config = test_config();
+    config.input_buffer_capacity_frames = 32;
+    config.auto_timing_warmup_samples = 1;
+    ashiato::sync::ReplicationClientClock clock(config);
+
+    REQUIRE(clock.maybe_bootstrap_from_first_server_update(10));
+    record_pong(clock, 10, 22);
+    REQUIRE(clock.stats().target_prediction_lead_frames == 13);
+
+    clock.set_auto_prediction_safety_frames(config.auto_prediction_safety_frames + 4);
+    REQUIRE(clock.config().auto_prediction_safety_frames == config.auto_prediction_safety_frames + 4);
+    REQUIRE(clock.stats().desired_prediction_lead_frames == 17);
+    REQUIRE(clock.stats().target_prediction_lead_frames == 17);
+
+    clock.set_auto_prediction_safety_frames(config.auto_prediction_safety_frames);
+    REQUIRE(clock.stats().target_prediction_lead_frames == 13);
+
+    clock.set_auto_prediction_safety_frames(config.auto_prediction_safety_frames + 100);
+    REQUIRE(clock.stats().target_prediction_lead_frames == 31);
+}

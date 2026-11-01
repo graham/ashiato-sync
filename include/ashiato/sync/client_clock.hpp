@@ -83,6 +83,9 @@ public:
     ReplicationClientTimingStats& mutable_stats() noexcept {
         return stats_;
     }
+    /// Sets the prediction safety margin the auto targets add. A whole frame of safety is a whole frame of target, so the desired and
+    /// target prediction leads move by the same delta (clamped as every target is); the next ping sample recomputes them from the new value.
+    void set_auto_prediction_safety_frames(SyncFrame frames) noexcept;
 
     bool bootstrapped() const noexcept {
         return bootstrapped_;

@@ -1880,6 +1880,23 @@ void ReplicationServer::log_entity_update_exceeds_mtu(
     }
 }
 
+void ReplicationServer::note_baseline_recovery(
+    PeerId peer,
+    ClientId client,
+    ashiato::Entity entity,
+    SyncFrame unacknowledged_frames) {
+    ++observability_stats_.baseline_recoveries;
+    if (logger_ != nullptr && logger_->should_log(spdlog::level::info)) {
+        logger_->info(
+            "event=server_entity_baseline_recovery frame={} peer={} client={} entity={} unacknowledged_frames={}",
+            frame_,
+            peer,
+            client,
+            entity.value,
+            unacknowledged_frames);
+    }
+}
+
 std::size_t ReplicationServer::retained_quantized_frame_count() const noexcept {
     std::size_t count = 0;
     for (const QuantizedFrame& quantized_frame : quantized_frames_) {

@@ -251,6 +251,7 @@ ReplicationServer::ReplicationSendResult server_detail::ServerClientReplicator::
         if (!replication_server.replicated_slot_is_replicable(registry, slot)) {
             continue;
         }
+        recover_undecodable_baseline(replication_server, replication, slot);
 
         serialized_.payload.clear();
         serialized_.quantized_frame = server_detail::invalid_quantized_frame_id;
@@ -422,6 +423,35 @@ void server_detail::ServerClientReplicator::UpdateScheduler::refresh_replication
             replication.invalidate_entity_baseline(replication_server, *entity_state);
         }
     }
+}
+
+void server_detail::ServerClientReplicator::UpdateScheduler::recover_undecodable_baseline(
+    ReplicationServer& replication_server,
+    ServerClientReplicator& replication,
+    std::uint32_t slot) {
+    const SyncFrame recovery_frames = replication_server.options().baseline_recovery_frames;
+    if (recovery_frames == 0U) {
+        return;
+    }
+    ClientEntityState* entity_state = replication.entities.try_get(slot);
+    if (entity_state == nullptr ||
+        !entity_state->awaiting_acknowledgement ||
+        entity_state->baseline == server_detail::invalid_quantized_frame_id) {
+        return;
+    }
+    const SyncFrame now = replication_server.frame();
+    if (now < entity_state->unacknowledged_since_frame ||
+        now - entity_state->unacknowledged_since_frame < recovery_frames) {
+        return;
+    }
+    // The epoch bump also stops an ACK for a delta sent before this point from restoring the dropped baseline.
+    replication.invalidate_entity_baseline(replication_server, *entity_state);
+    entity_state->awaiting_acknowledgement = false;
+    replication_server.note_baseline_recovery(
+        replication.peer,
+        replication.id,
+        replication_server.replicated_slot_entity(slot),
+        now - entity_state->unacknowledged_since_frame);
 }
 
 void server_detail::ServerClientReplicator::UpdateScheduler::cleanup_dirty_queue(

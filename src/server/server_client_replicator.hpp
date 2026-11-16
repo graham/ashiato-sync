@@ -47,9 +47,12 @@ struct ClientEntityState {
     // The newest frame of this entity the client acknowledged: it rejects any update carrying an older or equal frame of it as stale,
     // so a packet holding one can never be acknowledged and its id may be reused.
     SyncFrame acknowledged_frame = 0;
+    // The frame of the first tracked send since the last ACK that kept the baseline (baseline_recovery_frames counts from it).
+    SyncFrame unacknowledged_since_frame = 0;
     float last_priority = std::numeric_limits<float>::quiet_NaN();
     std::uint64_t component_mask = std::numeric_limits<std::uint64_t>::max();
     bool has_acknowledged_frame = false;
+    bool awaiting_acknowledgement = false;
     bool last_reserved = false;
     bool reference_priority_boost_pending = false;
     bool has_network_id = false;
@@ -296,6 +299,12 @@ private:
         ServerClientReplicator& replication,
         std::uint32_t slot,
         ClientDirtyQueue::Entry& entry);
+    // RECOVERY (ReplicationServerOptions::baseline_recovery_frames): drops the baseline of an entity none of whose tracked sends
+    // were acknowledged for that long, so this send is a full record the client can apply whatever baseline it holds.
+    void recover_undecodable_baseline(
+        ReplicationServer& replication_server,
+        ServerClientReplicator& replication,
+        std::uint32_t slot);
 
     std::vector<SerializedCandidate> candidates_;
     std::vector<SerializedCandidate> update_candidates_;

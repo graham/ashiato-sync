@@ -478,3 +478,49 @@ TEST_CASE("a late ACK for a wrapped packet id is never credited to the newer pac
     CHECK(rejected_updates == 0U);
     require_position(harness.client_position(entity), 10.0f + static_cast<float>(resumed_updates));
 }
+
+// Whatever credits a frame the client never applied (a misattributed ACK, a baseline the client has since evicted), the client can
+// no longer decode that entity's deltas and never acknowledges it again. The server must notice the missing ACK progress, resend the
+// entity in full and resume, at a bounded cost. Without the fix the stream stays frozen for good.
+TEST_CASE("an entity whose deltas the client cannot decode is resent in full and resumes", "[baseline-recovery][packet-id-wrap]") {
+    BaselineRecoveryHarness harness;
+    TrackedEntity entity = harness.add_entity();
+    harness.establish_initial_baseline(entity);
+
+    // The update at this frame is lost, yet the server is told the client applied it.
+    harness.set_position(entity, 1.0f);
+    harness.tick_server();
+    const ashiato::sync::SyncFrame lost_frame = harness.read_update(harness.take_single_packet()).frame;
+    REQUIRE(harness.server().acknowledge_entity(test_client_id, entity.server, lost_frame));
+
+    constexpr std::size_t observed_ticks = 240;  // past the recovery bound (180 frames, 3 s at 60 Hz)
+    constexpr std::size_t settled_ticks = 16;
+    std::size_t rejected_updates = 0;
+    std::size_t full_records = 0;
+    std::size_t rejected_after_settling = 0;
+    // A rising ramp, one 0.1 quantum a tick: the test position's delta is an unsigned 8-bit difference, so it only encodes rises.
+    for (std::size_t tick = 1; tick <= observed_ticks; ++tick) {
+        harness.set_position(entity, (static_cast<float>(tick) + 0.5f) / 10.0f);
+        harness.tick_server();
+        const ashiato::BitBuffer packet = harness.take_single_packet();
+        const ServerUpdatePacket decoded = harness.read_update(packet);
+        REQUIRE(decoded.entities.size() == 1U);
+        if (decoded.entities.front().full) {
+            ++full_records;
+        }
+        if (!harness.receive(packet)) {
+            ++rejected_updates;
+            if (tick > observed_ticks - settled_ticks) {
+                ++rejected_after_settling;
+            }
+        }
+        harness.forward_all_client_acks_unchecked();
+    }
+
+    CAPTURE(rejected_updates, full_records, rejected_after_settling);
+    CHECK(rejected_updates > 0U);           // the stall really happened
+    CHECK(rejected_after_settling == 0U);   // and the stream resumed
+    CHECK(full_records >= 1U);
+    CHECK(full_records <= 2U);              // the cost: one full resend (and at most one more while its ACK is in flight)
+    require_position(harness.client_position(entity), static_cast<float>(observed_ticks) / 10.0f);
+}

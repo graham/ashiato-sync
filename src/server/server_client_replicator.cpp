@@ -408,6 +408,7 @@ bool server_detail::ServerClientReplicator::acknowledge_entity(
 
     const bool baseline_eligible = found_pending->baseline_epoch_when_sent == entity_state->baseline_epoch;
     if (baseline_eligible) {
+        entity_state->awaiting_acknowledgement = false;
         if (entity_state->baseline != acked_quantized_frame) {
             replication_server.release_server_quantized_frame(entity_state->baseline);
             entity_state->baseline = acked_quantized_frame;

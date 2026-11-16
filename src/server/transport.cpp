@@ -31,6 +31,24 @@ void ReplicationServer::send_packet(
             records);
     const std::size_t charged_bytes = charged_packet_bytes(packet.byte_size());
     client.ack_tracker.track_packet_ack(client, packet_id, frame, charged_bytes, ack_records);
+    if (packet_id != 0U && options_.baseline_recovery_frames != 0U) {
+        // Start each entity's recovery wait at its first tracked send since an ACK; an untracked (id 0) send can never be
+        // acknowledged, so it proves nothing about the client.
+        for (const server_detail::PacketAckRecord& record : ack_records) {
+            if (record.destroy) {
+                continue;
+            }
+            const std::uint32_t slot = replicated_slot_for_entity(record.entity);
+            if (slot == server_detail::invalid_quantized_frame_id) {
+                continue;
+            }
+            server_detail::ClientEntityState* state = client.entities.try_get(slot);
+            if (state != nullptr && !state->awaiting_acknowledgement) {
+                state->awaiting_acknowledgement = true;
+                state->unacknowledged_since_frame = frame;
+            }
+        }
+    }
     if (client.bandwidth != nullptr) {
         client.bandwidth->spend(charged_bytes);
     }

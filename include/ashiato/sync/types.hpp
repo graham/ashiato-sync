@@ -886,6 +886,13 @@ struct ReplicationServerOptions {
     // one of its entities was acknowledged, so the client rejects it as stale), or was sent this many frames ago and is assumed
     // lost. With every id held, updates go out with id 0, which is never credited. 0 never assumes a packet lost.
     SyncFrame packet_ack_lifetime_frames = 1024;
+    // RECOVERY: a client that cannot decode an entity's deltas (its baseline was credited in error, or it has since evicted it)
+    // refuses every packet carrying that entity and never acknowledges it again. When an entity with a baseline has had none of its
+    // tracked sends acknowledged for this many frames, the server drops the baseline and sends the entity in full until a full
+    // update is acknowledged. Cost: at most one baseline reset per entity per this many frames without an ACK, and full records for
+    // that entity until one is acknowledged (one round trip on a client that is applying updates). Longer than the 129-frame ACK
+    // blackouts a healthy client must ride out on deltas. 0 disables.
+    SyncFrame baseline_recovery_frames = 180;
     ConnectHandlerFn connect_handler;
     TransportFn transport;
     ServerConnectionEventFn connection_event_handler;

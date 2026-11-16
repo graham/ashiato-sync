@@ -62,6 +62,8 @@ public:
         std::uint64_t clients_timed_out = 0;
         std::uint64_t dropped_fixed_step_frames = 0;
         std::uint64_t fixed_step_overflow_events = 0;
+        // Entities resent in full because a client acknowledged none of their deltas for baseline_recovery_frames.
+        std::uint64_t baseline_recoveries = 0;
     };
 
     explicit ReplicationServer(ashiato::Registry& registry, ReplicationServerOptions options = {});
@@ -205,6 +207,7 @@ public:
         std::size_t packet_bytes,
         std::size_t mtu_bytes,
         std::size_t record_bits);
+    void note_baseline_recovery(PeerId peer, ClientId client, ashiato::Entity entity, SyncFrame unacknowledged_frames);
 #ifdef ASHIATO_SYNC_ENABLE_TRACING
     SyncTracer* server_tracer() const noexcept;
     void trace_entity_started_syncing(

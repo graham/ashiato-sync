@@ -47,72 +47,70 @@ bool server_detail::ServerClientReplicator::AckTracker::acknowledge_packet(
     return all_valid;
 }
 
-bool server_detail::ServerClientReplicator::AckTracker::packet_ack_record_pending(
+bool server_detail::ServerClientReplicator::AckTracker::packet_unacknowledgeable(
     const ReplicationServer& server,
     const ServerClientReplicator& client,
-    const PacketAckRecord& record) const {
-    if (record.destroy) {
-        return client.destroys.contains_ack_record(record.entity, record.frame);
-    }
-
-    const std::uint32_t slot = server.replicated_slot_for_entity(record.entity);
-    if (slot == server_detail::invalid_quantized_frame_id) {
-        return false;
-    }
-    const ClientEntityState* state = client.entities.try_get(slot);
-    if (state == nullptr) {
-        return false;
-    }
+    const PendingPacketAck& pending) const {
+    // The client applies a packet whole or not at all, and refuses it whole when any entity's frame is not newer than the frame it
+    // already holds for that entity. So once a newer-or-equal frame of any entity in this packet has been acknowledged, this packet
+    // can never be acknowledged. Destroy records prove nothing and are left to the lifetime.
     return std::any_of(
-        state->pending.begin(),
-        state->pending.end(),
-        [&](const ClientEntityState::PendingQuantizedFrame& pending) {
-            return pending.frame == record.frame;
+        pending.records.begin(),
+        pending.records.end(),
+        [&](const PacketAckRecord& record) {
+            if (record.destroy) {
+                return false;
+            }
+            const std::uint32_t slot = server.replicated_slot_for_entity(record.entity);
+            if (slot == server_detail::invalid_quantized_frame_id) {
+                return false;
+            }
+            const ClientEntityState* state = client.entities.try_get(slot);
+            return state != nullptr && state->has_acknowledged_frame && state->acknowledged_frame >= record.frame;
         });
 }
 
-void server_detail::ServerClientReplicator::AckTracker::cleanup_packet_acks(
+void server_detail::ServerClientReplicator::AckTracker::release_dead_packet_acks(
     ReplicationServer& server,
-    ServerClientReplicator& client) {
-    pending_packet_acks.erase(
-        std::remove_if(
-            pending_packet_acks.begin(),
-            pending_packet_acks.end(),
-            [&](const PendingPacketAck& pending_packet) {
-                const bool stale = std::none_of(
-                    pending_packet.records.begin(),
-                    pending_packet.records.end(),
-                    [&](const PacketAckRecord& record) {
-                        return packet_ack_record_pending(server, client, record);
-                    });
-                if (stale && server.options().bandwidth.enabled && client.bandwidth != nullptr) {
-                    client.bandwidth->packet_lost(server.options().bandwidth, server.frame(), pending_packet.charged_bytes);
-                }
-                return stale;
-            }),
-        pending_packet_acks.end());
-}
-
-std::uint32_t server_detail::ServerClientReplicator::AckTracker::allocate_packet_id(
-    ReplicationServer& server,
-    ServerClientReplicator& client) {
+    ServerClientReplicator& client,
+    bool proven_only) {
     const ReplicationServerOptions& options = server.options();
-    const server_detail::ServerPacketIdAllocator allocator(options.protocol.max_pending_packet_acks_per_client);
-    const std::uint32_t packet_id = allocator.allocate(next_packet_id);
+    const SyncFrame lifetime = options.packet_ack_lifetime_frames;
+    const SyncFrame now = server.frame();
     pending_packet_acks.erase(
         std::remove_if(
             pending_packet_acks.begin(),
             pending_packet_acks.end(),
             [&](const PendingPacketAck& pending) {
-                if (pending.packet_id != packet_id) {
-                    return false;
+                const bool expired = !proven_only && lifetime != 0U && now >= pending.sent_frame &&
+                    now - pending.sent_frame >= lifetime;
+                const bool dead = expired || packet_unacknowledgeable(server, client, pending);
+                if (dead && options.bandwidth.enabled && client.bandwidth != nullptr) {
+                    client.bandwidth->packet_lost(options.bandwidth, now, pending.charged_bytes);
                 }
-                if (options.bandwidth.enabled && client.bandwidth != nullptr) {
-                    client.bandwidth->packet_lost(options.bandwidth, server.frame(), pending.charged_bytes);
-                }
-                return true;
+                return dead;
             }),
         pending_packet_acks.end());
+}
+
+void server_detail::ServerClientReplicator::AckTracker::cleanup_packet_acks(
+    ReplicationServer& server,
+    ServerClientReplicator& client) {
+    // Only proof frees an id here. A packet whose records simply left their entity's pending list (overflow, an entity that left)
+    // can still be acknowledged, so it keeps its id until it is acknowledged, proven dead or past packet_ack_lifetime_frames.
+    release_dead_packet_acks(server, client, true);
+}
+
+std::uint32_t server_detail::ServerClientReplicator::AckTracker::allocate_packet_id(
+    ReplicationServer& server,
+    ServerClientReplicator& client) {
+    const std::size_t max_pending = server.options().protocol.max_pending_packet_acks_per_client;
+    std::uint32_t packet_id = server_detail::allocate_free_packet_id(next_packet_id, pending_packet_acks, max_pending);
+    if (packet_id == 0U) {
+        // Every id is held (a client this far behind is starved or cut off): free what has expired, then try once more.
+        release_dead_packet_acks(server, client, false);
+        packet_id = server_detail::allocate_free_packet_id(next_packet_id, pending_packet_acks, max_pending);
+    }
     return packet_id;
 }
 

@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -122,6 +123,13 @@ public:
 
     bool forward_ack(const ashiato::BitBuffer& packet) {
         return server_->process_packet(server_registry_, test_client_id, packet);
+    }
+
+    // Forwards every queued ACK without requiring the server to match each one (an ACK it cannot credit is dropped).
+    void forward_all_client_acks_unchecked() {
+        for (const ashiato::BitBuffer& packet : client_->drain_ack_packets()) {
+            (void)server_->process_packet(server_registry_, test_client_id, packet);
+        }
     }
 
     void set_position(const TrackedEntity& entity, float x) {
@@ -415,4 +423,58 @@ TEST_CASE("a sent full update is a barrier against deltas from an older baseline
     REQUIRE(harness.receive(resumed_delta_packet));
     harness.forward_all_client_acks();
     require_position(harness.client_position(entity), 2.0f);
+}
+
+// A starved client (a joiner's process held off the CPU, measured in Open Range's net_trail pairs: 234 to 289 frames behind)
+// applies an update the server sent more than one packet-id cycle ago and acknowledges it. The 8-bit id in that ACK names a newer
+// packet too; crediting the newer one makes the server delta against a frame the client never applied, and every later update is
+// rejected with delta_missing_baseline. Without the fix: the held-back ids repeat and every update after the late ACK is rejected.
+TEST_CASE("a late ACK for a wrapped packet id is never credited to the newer packet", "[baseline-recovery][packet-id-wrap]") {
+    BaselineRecoveryHarness harness;
+    TrackedEntity entity = harness.add_entity();
+    harness.establish_initial_baseline(entity);
+
+    constexpr std::size_t held_back_updates = 300;  // more than one cycle of the default 8-bit packet ids (255)
+    std::vector<ashiato::BitBuffer> held_back;
+    std::vector<std::uint32_t> held_back_ids;
+    held_back.reserve(held_back_updates);
+    for (std::size_t update = 1; update <= held_back_updates; ++update) {
+        harness.set_position(entity, alternating_position(update));
+        harness.tick_server();
+        ashiato::BitBuffer packet = harness.take_single_packet();
+        held_back_ids.push_back(harness.read_update(packet).packet_id);
+        held_back.push_back(std::move(packet));
+    }
+
+    // No two packets the client might still acknowledge share an id (0 is never acknowledged, so it may repeat).
+    std::set<std::uint32_t> outstanding_ids;
+    std::size_t repeated_ids = 0;
+    for (const std::uint32_t id : held_back_ids) {
+        if (id != 0U && !outstanding_ids.insert(id).second) {
+            ++repeated_ids;
+        }
+    }
+    CAPTURE(repeated_ids);
+    CHECK(repeated_ids == 0U);
+
+    // The starved client gets the oldest held-back update only (the rest were dropped) and acknowledges it late.
+    REQUIRE(harness.receive(held_back.front()));
+    std::vector<ashiato::BitBuffer> late_ack;
+    harness.collect_client_acks(late_ack);
+    REQUIRE(late_ack.size() == 1U);
+    (void)harness.forward_ack(late_ack.front());
+
+    std::size_t rejected_updates = 0;
+    constexpr std::size_t resumed_updates = 8;
+    for (std::size_t update = 1; update <= resumed_updates; ++update) {
+        harness.set_position(entity, 10.0f + static_cast<float>(update));
+        harness.tick_server();
+        if (!harness.receive(harness.take_single_packet())) {
+            ++rejected_updates;
+        }
+        harness.forward_all_client_acks_unchecked();
+    }
+    CAPTURE(rejected_updates);
+    CHECK(rejected_updates == 0U);
+    require_position(harness.client_position(entity), 10.0f + static_cast<float>(resumed_updates));
 }

@@ -44,8 +44,12 @@ struct ClientEntityState {
     std::uint32_t baseline_epoch = 0;  // Blocks stale ACKs from restoring invalidated baselines.
     std::uint32_t network_id = 0;
     std::uint32_t network_version = 0;
+    // The newest frame of this entity the client acknowledged: it rejects any update carrying an older or equal frame of it as stale,
+    // so a packet holding one can never be acknowledged and its id may be reused.
+    SyncFrame acknowledged_frame = 0;
     float last_priority = std::numeric_limits<float>::quiet_NaN();
     std::uint64_t component_mask = std::numeric_limits<std::uint64_t>::max();
+    bool has_acknowledged_frame = false;
     bool last_reserved = false;
     bool reference_priority_boost_pending = false;
     bool has_network_id = false;
@@ -187,15 +191,18 @@ struct ServerClientReplicator final : ServerRegistryDirtyFrameListener, ServerFr
             const std::vector<PacketAckRecord>& records);
 
     private:
+        // Drops pending packets that can no longer be acknowledged (packet_unacknowledgeable) or are older than
+        // packet_ack_lifetime_frames, so their ids are free again.
+        void release_dead_packet_acks(ReplicationServer& replication_server, ServerClientReplicator& client, bool proven_only);
+        bool packet_unacknowledgeable(
+            const ReplicationServer& replication_server,
+            const ServerClientReplicator& client,
+            const PendingPacketAck& pending) const;
         bool client_acknowledged_destroy(
             ReplicationServer& replication_server,
             ServerClientReplicator& client,
             ashiato::Entity entity,
             SyncFrame frame);
-        bool packet_ack_record_pending(
-            const ReplicationServer& replication_server,
-            const ServerClientReplicator& client,
-            const PacketAckRecord& record) const;
     };
 
     ClientId id = invalid_client_id;

@@ -395,6 +395,10 @@ bool server_detail::ServerClientReplicator::acknowledge_entity(
     if (found_pending == entity_state->pending.end()) {
         return false;
     }
+    if (!entity_state->has_acknowledged_frame || frame > entity_state->acknowledged_frame) {
+        entity_state->acknowledged_frame = frame;
+        entity_state->has_acknowledged_frame = true;
+    }
 
     const std::uint32_t acked_quantized_frame = found_pending->quantized_frame;
     if (acked_quantized_frame == server_detail::invalid_quantized_frame_id ||

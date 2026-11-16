@@ -881,6 +881,11 @@ struct ReplicationServerOptions {
     // client is sent at most bandwidth_limit_bytes_per_tick + reserved_bandwidth_bytes_per_tick
     // a tick. 0 keeps reserved records first in the order but charges them to the shared budget.
     std::size_t reserved_bandwidth_bytes_per_tick = 0;
+    // An update's ACK names it by packet id, and ids repeat every max_packet_id packets, so an id is never given to a new packet
+    // while its last packet could still be acknowledged: until that packet is acknowledged, or provably cannot be (a newer frame of
+    // one of its entities was acknowledged, so the client rejects it as stale), or was sent this many frames ago and is assumed
+    // lost. With every id held, updates go out with id 0, which is never credited. 0 never assumes a packet lost.
+    SyncFrame packet_ack_lifetime_frames = 1024;
     ConnectHandlerFn connect_handler;
     TransportFn transport;
     ServerConnectionEventFn connection_event_handler;
